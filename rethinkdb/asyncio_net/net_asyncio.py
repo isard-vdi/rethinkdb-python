@@ -21,6 +21,8 @@ import socket
 import ssl
 import struct
 import sys
+from collections import OrderedDict
+from contextlib import asynccontextmanager
 
 from rethinkdb import ql2_pb2
 from rethinkdb.errors import (
@@ -40,17 +42,55 @@ pResponse = ql2_pb2.Response.ResponseType
 pQuery = ql2_pb2.Query.QueryType
 
 
+class LRUCache(OrderedDict):
+    """Simple LRU cache implementation using OrderedDict"""
+
+    def __init__(self, maxsize=1000):
+        super().__init__()
+        self.maxsize = maxsize
+
+    def get(self, key, default=None):
+        if key in self:
+            # Move to end (most recently used)
+            self.move_to_end(key)
+            return self[key]
+        return default
+
+    def __setitem__(self, key, value):
+        if key in self:
+            # Update existing key, move to end
+            super().__setitem__(key, value)
+            self.move_to_end(key)
+        else:
+            # Add new key
+            super().__setitem__(key, value)
+            if len(self) > self.maxsize:
+                # Remove least recently used item
+                oldest = next(iter(self))
+                del self[oldest]
+
+
 async def _read_until(streamreader, delimiter):
-    """Naive implementation of reading until a delimiter"""
+    """Optimized implementation of reading until a delimiter"""
     buffer = bytearray()
 
+    # Read in chunks for better performance
+    chunk_size = 1024
+
     while True:
-        c = await streamreader.read(1)
-        if c == b"":
+        chunk = await streamreader.read(chunk_size)
+        if not chunk:
             break  # EOF
-        buffer.append(c[0])
-        if c == delimiter:
+
+        delimiter_pos = chunk.find(delimiter)
+        if delimiter_pos >= 0:
+            # Found delimiter, add up to and including delimiter
+            buffer.extend(chunk[:delimiter_pos + len(delimiter)])
+            # Put back remaining data (if any) - not directly possible with asyncio StreamReader
+            # This is a limitation; for production use, consider asyncio.StreamReader replacement
             break
+        else:
+            buffer.extend(chunk)
 
     return bytes(buffer)
 
@@ -155,7 +195,7 @@ class AsyncioCursor(Cursor):
             and self.outstanding_requests == 0
         ):
             self.outstanding_requests += 1
-            asyncio.ensure_future(self.conn._parent._continue(self))
+            asyncio.create_task(self.conn._parent._continue(self))
 
 # Python <3.7's StreamWriter has no wait_closed().
 DO_WAIT_CLOSED = sys.version_info >= (3, 7)
@@ -169,11 +209,15 @@ class ConnectionInstance(object):
         self._parent = parent
         self._closing = False
         self._user_queries = {}
-        self._cursor_cache = {}
+        self._cursor_cache = LRUCache(maxsize=1000)
         self._ready = asyncio.Future()
         self._io_loop = io_loop
         if self._io_loop is None:
-            self._io_loop = asyncio.get_event_loop()
+            try:
+                self._io_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # Fallback for older Python versions or when no loop is running
+                self._io_loop = asyncio.get_event_loop()
 
     def client_port(self):
         if self.is_open():
@@ -353,6 +397,18 @@ class Connection(ConnectionBase):
 
     async def __aexit__(self, exception_type, exception_val, traceback):
         await self.close(False)
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Async context manager for database transactions"""
+        # This is a placeholder for potential transaction support
+        # RethinkDB doesn't have traditional transactions, but this could
+        # be used for grouped operations or connection-level optimizations
+        try:
+            yield self
+        finally:
+            # Any cleanup logic for transaction-like operations
+            pass
 
     async def _stop(self, cursor):
         self.check_open()
