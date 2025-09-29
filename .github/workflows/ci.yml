@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -e .
+
+    - name: Install RethinkDB
+      run: |
+        wget -qO- https://download.rethinkdb.com/repository/raw/pubkey.gpg | sudo apt-key add -
+        echo "deb https://download.rethinkdb.com/repository/ubuntu-$(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/rethinkdb.list
+        sudo apt-get update
+        sudo apt-get install rethinkdb
+
+    - name: Start RethinkDB
+      run: |
+        rethinkdb --daemon --bind all
+        sleep 5
+
+    - name: Run tests
+      run: |
+        make test-ci
+
+    - name: Upload coverage
+      if: matrix.python-version == '3.11'
+      run: |
+        make upload-coverage
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install black isort flake8 mypy
+        pip install -r requirements.txt
+        pip install -e .
+
+    - name: Run black
+      run: black --check .
+
+    - name: Run isort
+      run: isort --check-only .
+
+    - name: Run flake8
+      run: flake8 rethinkdb/
+
+    - name: Run mypy
+      run: mypy rethinkdb/ || true  # Allow mypy to fail for now

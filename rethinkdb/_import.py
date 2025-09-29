@@ -19,7 +19,6 @@
 
 """`rethinkdb import` loads data into a RethinkDB cluster"""
 
-from __future__ import print_function
 
 import codecs
 import collections
@@ -35,7 +34,6 @@ import time
 import traceback
 from multiprocessing.queues import Queue, SimpleQueue
 
-import six
 
 from rethinkdb import ast, errors, query, utils_common
 from rethinkdb.logger import default_logger
@@ -1244,15 +1242,10 @@ def import_tables(options, sources, files_ignored=None):
 
     tables = dict(((x.db, x.table), x) for x in sources)  # (db, table) => table
 
-    if six.PY3:
-        ctx = multiprocessing.get_context(multiprocessing.get_start_method())
-        error_queue = SimpleQueue(ctx=ctx)
-        warning_queue = SimpleQueue(ctx=ctx)
-        timing_queue = SimpleQueue(ctx=ctx)
-    else:
-        error_queue = SimpleQueue()
-        warning_queue = SimpleQueue()
-        timing_queue = SimpleQueue()
+    ctx = multiprocessing.get_context(multiprocessing.get_start_method())
+    error_queue = SimpleQueue(ctx=ctx)
+    warning_queue = SimpleQueue(ctx=ctx)
+    timing_queue = SimpleQueue(ctx=ctx)
 
     max_queue_size = options.clients * 3
     work_queue = multiprocessing.Manager().Queue(max_queue_size)

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rethinkdb"
+dynamic = ["version"]
+description = "Python driver library for the RethinkDB database server."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "RethinkDB", email = "bugs@rethinkdb.com"}
+]
+maintainers = [
+    {name = "RethinkDB", email = "bugs@rethinkdb.com"}
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "looseversion",
+]
+
+[project.urls]
+Homepage = "https://github.com/RethinkDB/rethinkdb-python"
+Repository = "https://github.com/RethinkDB/rethinkdb-python"
+"Bug Tracker" = "https://github.com/RethinkDB/rethinkdb-python/issues"
+
+[project.scripts]
+rethinkdb-import = "rethinkdb._import:main"
+rethinkdb-dump = "rethinkdb._dump:main"
+rethinkdb-export = "rethinkdb._export:main"
+rethinkdb-restore = "rethinkdb._restore:main"
+rethinkdb-index-rebuild = "rethinkdb._index_rebuild:main"
+rethinkdb-repl = "rethinkdb.__main__:startInterpreter"
+
+[tool.setuptools.dynamic]
+version = {attr = "rethinkdb.version.VERSION"}
+
+[tool.setuptools.packages.find]
+include = ["rethinkdb*"]
+
+[tool.setuptools.package-data]
+rethinkdb = ["backports/ssl_match_hostname/*.txt"]
+
+[tool.pytest.ini_options]
+collect_ignore = ["setup.py"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["rethinkdb"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

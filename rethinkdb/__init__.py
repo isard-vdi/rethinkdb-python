@@ -15,10 +15,7 @@
 from rethinkdb import errors, version
 
 # The builtins here defends against re-importing something obscuring `object`.
-try:
-    import __builtin__ as builtins  # Python 2
-except ImportError:
-    import builtins  # Python 3
+import builtins
 
 
 __all__ = ["RethinkDB"] + errors.__all__

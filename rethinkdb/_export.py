@@ -17,7 +17,6 @@
 # This file incorporates work covered by the following copyright:
 # Copyright 2010-2016 RethinkDB, all rights reserved.
 
-from __future__ import print_function
 
 import csv
 import ctypes
@@ -35,7 +34,6 @@ import time
 import traceback
 from multiprocessing.queues import SimpleQueue
 
-import six
 
 from rethinkdb import errors, query, utils_common
 from rethinkdb.logger import default_logger
@@ -312,11 +310,8 @@ def export_table(
         with sindex_counter.get_lock():
             sindex_counter.value += len(table_info["indexes"])
         # -- start the writer
-        if six.PY3:
-            ctx = multiprocessing.get_context(multiprocessing.get_start_method())
-            task_queue = SimpleQueue(ctx=ctx)
-        else:
-            task_queue = SimpleQueue()
+        ctx = multiprocessing.get_context(multiprocessing.get_start_method())
+        task_queue = SimpleQueue(ctx=ctx)
 
         writer = None
         if options.format == "json":
@@ -461,11 +456,8 @@ def run_clients(options, workingDir, db_table_set):
     # Spawn one client for each db.table, up to options.clients at a time
     exit_event = multiprocessing.Event()
     processes = []
-    if six.PY3:
-        ctx = multiprocessing.get_context(multiprocessing.get_start_method())
-        error_queue = SimpleQueue(ctx=ctx)
-    else:
-        error_queue = SimpleQueue()
+    ctx = multiprocessing.get_context(multiprocessing.get_start_method())
+    error_queue = SimpleQueue(ctx=ctx)
     interrupt_event = multiprocessing.Event()
     sindex_counter = multiprocessing.Value(ctypes.c_longlong, 0)
     hook_counter = multiprocessing.Value(ctypes.c_longlong, 0)

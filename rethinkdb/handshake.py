@@ -24,7 +24,6 @@ import sys
 import threading
 from random import SystemRandom
 
-import six
 
 from rethinkdb import ql2_pb2
 from rethinkdb.errors import ReqlAuthError, ReqlDriverError
@@ -148,7 +147,7 @@ class HandshakeV1_0(object):
             username.encode("utf-8").replace(b"=", b"=3D").replace(b",", b"=2C")
         )
 
-        self._password = six.b(password)
+        self._password = password.encode('utf-8') if isinstance(password, str) else password
 
         self._compare_digest = self._get_compare_digest()
         self._pbkdf2_hmac = self._get_pbkdf2_hmac()
