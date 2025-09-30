@@ -25,7 +25,7 @@ import ssl
 import struct
 import time
 
-from rethinkdb import ql2_pb2
+from . import ql2_pb2
 from rethinkdb.ast import DB, Repl, ReQLDecoder, ReQLEncoder, expr
 from rethinkdb.errors import (
     ReqlAuthError,

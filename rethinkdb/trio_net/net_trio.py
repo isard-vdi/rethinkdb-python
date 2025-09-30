@@ -24,7 +24,8 @@ import struct
 import trio
 import trio.abc
 
-from rethinkdb import RethinkDB, ql2_pb2
+from .. import ql2_pb2
+from rethinkdb import RethinkDB
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,

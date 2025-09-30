@@ -87,4 +87,6 @@ class RethinkDB(builtins.object):
         return self.make_connection(self.connection_type, *args, **kwargs)
 
 
+# Initialize r after all imports are resolved
+# This is now safe because we fixed the relative imports
 r = RethinkDB()

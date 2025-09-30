@@ -24,7 +24,7 @@ import sys
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 
-from rethinkdb import ql2_pb2
+from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,

@@ -25,7 +25,7 @@ import threading
 from random import SystemRandom
 
 
-from rethinkdb import ql2_pb2
+from . import ql2_pb2
 from rethinkdb.errors import ReqlAuthError, ReqlDriverError
 from rethinkdb.helpers import chain_to_bytes, decode_utf8
 from rethinkdb.logger import default_logger

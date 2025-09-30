@@ -23,7 +23,7 @@ from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 from tornado.tcpclient import TCPClient
 
-from rethinkdb import ql2_pb2
+from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,

@@ -23,7 +23,8 @@ import gevent
 import gevent.socket as socket
 from gevent.event import AsyncResult, Event
 from gevent.lock import Semaphore
-from rethinkdb import net, ql2_pb2
+from rethinkdb import net
+from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,

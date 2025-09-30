@@ -18,7 +18,7 @@
 import struct
 import time
 
-from rethinkdb import ql2_pb2
+from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlDriverError,

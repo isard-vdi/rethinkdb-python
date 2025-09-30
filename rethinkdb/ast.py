@@ -25,7 +25,7 @@ import json
 import sys
 import threading
 
-from rethinkdb import ql2_pb2
+from . import ql2_pb2
 from rethinkdb.errors import (QueryPrinter, ReqlDriverCompileError,
                               ReqlDriverError, T)
 
