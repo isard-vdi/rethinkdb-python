@@ -16,6 +16,7 @@ maintainers = [
 ]
 classifiers = [
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -24,10 +25,40 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.8"
 dependencies = [
     "looseversion",
+]
+
+[project.optional-dependencies]
+# Async backend extras. asyncio is built into the stdlib, so it has no
+# runtime dependency. The other backends are only needed if you call
+# r.set_loop_type("<backend>") and use that backend's connection.
+tornado = ["tornado>=6.3"]
+trio = ["trio>=0.22.0", "outcome>=1.2.0", "attrs>=22.0"]
+gevent = ["gevent>=21.0"]
+twisted = ["twisted>=22.0"]
+
+# Dev extras: linting, type-checking, formatting.
+dev = [
+    "black>=23.0",
+    "isort>=5.12.0",
+    "flake8>=6.0",
+    "mypy>=1.5.0",
+]
+
+# Test extras: everything needed to run the test suite.
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "pytest-tornasync>=0.6.0.post2",
+    "pytest-trio>=0.8.0",
+    "coverage>=7.0",
 ]
 
 [project.urls]
@@ -50,14 +81,19 @@ version = {attr = "rethinkdb.version.VERSION"}
 include = ["rethinkdb*"]
 
 [tool.setuptools.package-data]
-rethinkdb = ["backports/ssl_match_hostname/*.txt"]
+rethinkdb = ["py.typed", "backports/ssl_match_hostname/*.txt"]
 
 [tool.pytest.ini_options]
-collect_ignore = ["setup.py"]
 testpaths = ["tests"]
+markers = [
+    "unit: unit tests that do not require a live RethinkDB server",
+    "integration: integration tests that require a live RethinkDB server",
+]
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["rethinkdb"]
+branch = true
 
 [tool.coverage.report]
 exclude_lines = [
@@ -65,6 +101,8 @@ exclude_lines = [
     "def __repr__",
     "raise AssertionError",
     "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.black]
@@ -75,8 +113,37 @@ target-version = ['py38']
 profile = "black"
 line_length = 88
 
+# Mypy is split into a lenient global pass for the legacy surface and a
+# strict per-module pass for the public API written with full type hints.
+# When you add a new public module, add it to the strict-overrides list.
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
+warn_unused_ignores = true
+strict_equality = true
+# Legacy modules (net.py, ast.py, _dump.py, etc.) are mostly untyped.
+# Don't break the world; opt the typed surface in via overrides.
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["rethinkdb.connection_pool"]
 disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Backend-specific networking modules use coroutine decorators or yield-from
+# idioms that mypy can't analyse without their own type stubs.
+module = [
+    "rethinkdb.gevent_net.*",
+    "rethinkdb.tornado_net.*",
+    "rethinkdb.trio_net.*",
+    "rethinkdb.twisted_net.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Generated protobuf stub — checked in by hand, not worth typing.
+module = ["rethinkdb.ql2_pb2"]
+ignore_errors = true

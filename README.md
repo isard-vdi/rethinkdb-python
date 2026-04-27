@@ -216,11 +216,17 @@ To help the migration from rethinkdb<2.4 we introduced a shortcut which can easi
 ## Run tests
 In the `Makefile` you can find three different test commands: `test-unit`, `test-integration` and `test-remote`. As RethinkDB has dropped the support of Windows, we would like to ensure that those of us who are using Windows for development can still contribute. Because of this, we support running integration tests against Digital Ocean Droplets as well.
 
-Before you run any test, make sure that you install the requirements.
+Before you run any test, make sure that you install the package with the
+test (and optionally dev) extras and prepare the protobuf stubs:
 ```bash
-$ pip install -r requirements.txt
+$ pip install -e ".[test,dev]"
 $ make prepare
 ```
+
+To pull in a specific async backend's dependencies, use the matching
+extra: `pip install "rethinkdb[tornado]"`, `[trio]`, `[gevent]`, or
+`[twisted]`. The default install ships with the asyncio and sync
+backends only.
 
 ### Running unit tests
 ```bash
