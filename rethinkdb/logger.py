@@ -16,7 +16,6 @@
 Wrap logging package to not repeat general logging steps.
 """
 
-
 import logging
 import sys
 

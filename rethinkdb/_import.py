@@ -19,7 +19,6 @@
 
 """`rethinkdb import` loads data into a RethinkDB cluster"""
 
-
 import codecs
 import collections
 import csv

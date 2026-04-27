@@ -8,13 +8,14 @@ asyncio backend end-to-end: connect, create table, insert, cursor iteration.
 import os
 
 import pytest
+import pytest_asyncio
 
 from rethinkdb import r
 
 INTEGRATION_TEST_DB = "integration_test"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def asyncio_conn():
     """Per-test asyncio connection against the configured RethinkDB host."""
     r.set_loop_type("asyncio")

@@ -96,16 +96,13 @@ def expr(val, nesting_depth=20):
         return Func(val)
     elif isinstance(val, (datetime.datetime, datetime.date)):
         if not hasattr(val, "tzinfo") or not val.tzinfo:
-            raise ReqlDriverCompileError(
-                """Cannot convert %s to ReQL time object
+            raise ReqlDriverCompileError("""Cannot convert %s to ReQL time object
             without timezone information. You can add timezone information with
             the third party module \"pytz\" or by constructing ReQL compatible
             timezone values with r.make_timezone(\"[+-]HH:MM\"). Alternatively,
             use one of ReQL's bultin time constructors, r.now, r.time,
             or r.iso8601.
-            """
-                % (type(val).__name__)
-            )
+            """ % (type(val).__name__))
         return ISO8601(val.isoformat())
     elif isinstance(val, RqlBinary):
         return Binary(val)

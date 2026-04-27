@@ -42,15 +42,20 @@ trio = ["trio>=0.22.0", "outcome>=1.2.0", "attrs>=22.0"]
 gevent = ["gevent>=21.0"]
 twisted = ["twisted>=22.0"]
 
-# Dev extras: linting, type-checking, formatting.
+# Dev extras: linting, type-checking, formatting. Pinned to a major
+# version range so CI is reproducible — bump deliberately when adopting
+# new formatter rules so reformat churn shows up as its own commit.
 dev = [
-    "black>=23.0",
-    "isort>=5.12.0",
+    "black~=26.0",
+    "isort~=8.0",
     "flake8>=6.0",
-    "mypy>=1.5.0",
+    "mypy~=1.20",
 ]
 
-# Test extras: everything needed to run the test suite.
+# Test extras: everything needed to run the full test suite, including
+# tests for the optional async backends. Production installs that only
+# need one backend should use that backend's individual extra (e.g.
+# `pip install rethinkdb[tornado]`); `[test]` is for CI / contributors.
 test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
@@ -58,6 +63,10 @@ test = [
     "pytest-tornasync>=0.6.0.post2",
     "pytest-trio>=0.8.0",
     "coverage>=7.0",
+    "tornado>=6.3",
+    "trio>=0.22.0",
+    "outcome>=1.2.0",
+    "attrs>=22.0",
 ]
 
 [project.urls]
@@ -88,7 +97,10 @@ markers = [
     "unit: unit tests that do not require a live RethinkDB server",
     "integration: integration tests that require a live RethinkDB server",
 ]
-asyncio_mode = "auto"
+# `strict` (default) requires explicit @pytest.mark.asyncio. `auto`
+# would conflict with pytest-trio (also installed via the [test] extra)
+# because both plugins claim async test functions in auto mode.
+asyncio_mode = "strict"
 
 [tool.coverage.run]
 source = ["rethinkdb"]

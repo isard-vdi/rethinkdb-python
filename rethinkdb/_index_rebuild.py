@@ -19,8 +19,8 @@
 
 
 """'rethinkdb index-rebuild' recreates outdated secondary indexes in a cluster.
-  This should be used after upgrading to a newer version of rethinkdb.  There
-  will be a notification in the web UI if any secondary indexes are out-of-date."""
+This should be used after upgrading to a newer version of rethinkdb.  There
+will be a notification in the web UI if any secondary indexes are out-of-date."""
 
 import sys
 import time
