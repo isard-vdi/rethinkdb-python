@@ -18,15 +18,6 @@
 import struct
 import time
 
-from .. import ql2_pb2
-from rethinkdb.errors import (
-    ReqlAuthError,
-    ReqlDriverError,
-    ReqlTimeoutError,
-    RqlCursorEmpty,
-)
-from rethinkdb.net import Connection as ConnectionBase
-from rethinkdb.net import Cursor, Query, Response, maybe_profile
 from twisted.internet import defer, reactor
 from twisted.internet.defer import (
     CancelledError,
@@ -38,6 +29,17 @@ from twisted.internet.defer import (
 from twisted.internet.endpoints import clientFromString
 from twisted.internet.error import TimeoutError
 from twisted.internet.protocol import ClientFactory, Protocol
+
+from rethinkdb.errors import (
+    ReqlAuthError,
+    ReqlDriverError,
+    ReqlTimeoutError,
+    RqlCursorEmpty,
+)
+from rethinkdb.net import Connection as ConnectionBase
+from rethinkdb.net import Cursor, Query, Response, maybe_profile
+
+from .. import ql2_pb2
 
 __all__ = ["Connection"]
 

@@ -23,7 +23,6 @@ from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 from tornado.tcpclient import TCPClient
 
-from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,
@@ -32,6 +31,8 @@ from rethinkdb.errors import (
 )
 from rethinkdb.net import Connection as ConnectionBase
 from rethinkdb.net import Cursor, Query, Response, maybe_profile
+
+from .. import ql2_pb2
 
 __all__ = ["Connection"]
 
@@ -246,7 +247,10 @@ class ConnectionInstance(object):
         try:
             while True:
                 buf = yield self._stream.read_bytes(12)
-                (token, length,) = struct.unpack("<qL", buf)
+                (
+                    token,
+                    length,
+                ) = struct.unpack("<qL", buf)
                 buf = yield self._stream.read_bytes(length)
 
                 cursor = self._cursor_cache.get(token)

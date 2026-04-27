@@ -24,7 +24,6 @@ import struct
 import trio
 import trio.abc
 
-from .. import ql2_pb2
 from rethinkdb import RethinkDB
 from rethinkdb.errors import (
     ReqlAuthError,
@@ -36,6 +35,8 @@ from rethinkdb.errors import (
 from rethinkdb.net import Connection as ConnectionBase
 from rethinkdb.net import Cursor, Query, Response, make_connection, maybe_profile
 
+from .. import ql2_pb2
+
 __all__ = ["Connection"]
 
 
@@ -44,7 +45,7 @@ P_QUERY = ql2_pb2.Query.QueryType
 
 
 class TrioFuture:
-    """ Trio does not have a future class because Trio encourages the use of
+    """Trio does not have a future class because Trio encourages the use of
     "coroutines all the way down", but the this driver was implemented by
     copying the net_asyncio code and transliterating it into the Trio API. The
     underlying code in net.py has the I/O intertwined with framing and state
@@ -111,27 +112,27 @@ def _reql_timeout(seconds):
 
 
 class TrioCursor(Cursor, trio.abc.AsyncResource):
-    """ A cursor that allows async iteration within the Trio framework. """
+    """A cursor that allows async iteration within the Trio framework."""
 
     def __init__(self, *args, **kwargs):
-        """ Constructor """
+        """Constructor"""
         self._new_response = trio.Event()
         self._nursery = kwargs.pop("nursery")
         Cursor.__init__(self, *args, **kwargs)
 
     def __aiter__(self):
-        """ This object is an async iterator. """
+        """This object is an async iterator."""
         return self
 
     async def __anext__(self):
-        """ Asynchronously get next item from this cursor. """
+        """Asynchronously get next item from this cursor."""
         try:
             return await self._get_next(timeout=None)
         except ReqlCursorEmpty:
             raise StopAsyncIteration
 
     async def close(self):
-        """ Close this cursor. """
+        """Close this cursor."""
         if self.error is None:
             self.error = self._empty_error()
             if self.conn.is_open():
@@ -141,8 +142,8 @@ class TrioCursor(Cursor, trio.abc.AsyncResource):
     aclose = close
 
     def _extend(self, res_buf):
-        """ Override so that we can make this async, and also to wake up blocked
-        tasks. """
+        """Override so that we can make this async, and also to wake up blocked
+        tasks."""
         self.outstanding_requests -= 1
         self._maybe_fetch_batch()
         res = Response(self.query.token, res_buf, self._json_decoder)
@@ -223,7 +224,7 @@ class ConnectionInstance:
                 self._closed = True
 
     async def _read_until(self, delimiter):
-        """ Naive implementation of reading until a delimiter. """
+        """Naive implementation of reading until a delimiter."""
         buffer = bytearray()
 
         try:
@@ -238,7 +239,7 @@ class ConnectionInstance:
         return bytes(buffer)
 
     async def _read_exactly(self, num):
-        data = b''
+        data = b""
         try:
             while len(data) < num:
                 data += await self._stream.receive_some(num - len(data))
@@ -364,7 +365,10 @@ class ConnectionInstance:
         try:
             while True:
                 buf = await self._read_exactly(12)
-                (token, length,) = struct.unpack("<qL", buf)
+                (
+                    token,
+                    length,
+                ) = struct.unpack("<qL", buf)
                 buf = await self._read_exactly(length)
 
                 cursor = self._cursor_cache.get(token)
@@ -462,17 +466,17 @@ class _TrioConnectionPoolContextManager:
         self._pool = pool
 
     async def __aenter__(self):
-        """ Acquire a connection. """
+        """Acquire a connection."""
         self._conn = await self._pool.acquire()
         return self._conn
 
     async def __aexit__(self, exc_type, exc, traceback):
-        """ Release a connection. """
+        """Release a connection."""
         await self._pool.release(self._conn)
 
 
 class TrioConnectionPool:
-    """ A RethinkDB connection pool for Trio framework. """
+    """A RethinkDB connection pool for Trio framework."""
 
     def __init__(self, *args, **kwargs):
         """

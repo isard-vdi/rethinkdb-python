@@ -158,7 +158,10 @@ class TestDataWrite(IntegrationTestCaseBase):
 
         document = next(
             self.r.table(self.table_name)
-            .between(0, self.insert_data["id"] + 1,)
+            .between(
+                0,
+                self.insert_data["id"] + 1,
+            )
             .run(self.conn)
         )
 
@@ -169,7 +172,10 @@ class TestDataWrite(IntegrationTestCaseBase):
 
         document = next(
             self.r.table(self.table_name)
-            .between(self.r.minval, self.r.maxval,)
+            .between(
+                self.r.minval,
+                self.r.maxval,
+            )
             .run(self.conn)
         )
 

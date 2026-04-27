@@ -23,8 +23,8 @@ import gevent
 import gevent.socket as socket
 from gevent.event import AsyncResult, Event
 from gevent.lock import Semaphore
+
 from rethinkdb import net
-from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,
@@ -34,6 +34,8 @@ from rethinkdb.errors import (
     RqlTimeoutError,
 )
 from rethinkdb.logger import default_logger
+
+from .. import ql2_pb2
 
 __all__ = ["Connection"]
 
@@ -299,7 +301,10 @@ class ConnectionInstance(object):
         try:
             while True:
                 buf = self._socket.recvall(12)
-                (token, length,) = struct.unpack("<qL", buf)
+                (
+                    token,
+                    length,
+                ) = struct.unpack("<qL", buf)
                 buf = self._socket.recvall(length)
 
                 cursor = self._cursor_cache.get(token)

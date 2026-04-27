@@ -8,7 +8,7 @@ def decode_utf8(string, encoding="utf-8"):
 def chain_to_bytes(*strings):
     return b"".join(
         [
-            string.encode('utf-8') if isinstance(string, str) else string
+            string.encode("utf-8") if isinstance(string, str) else string
             for string in strings
         ]
     )

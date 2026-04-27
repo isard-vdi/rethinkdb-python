@@ -58,7 +58,6 @@ try:
         else:
             return str(inputString)
 
-
 except NameError:
 
     def convertForPrint(inputString):
@@ -70,7 +69,6 @@ try:
 
     def dict_items(d):
         return d.iteritems()
-
 
 except AttributeError:
 
@@ -201,7 +199,6 @@ try:
     class ReqlTimeoutError(_ReqlTimeoutError, TimeoutError):
         pass
 
-
 except NameError:
 
     class ReqlTimeoutError(_ReqlTimeoutError):
@@ -236,9 +233,11 @@ class QueryPrinter(object):
 
         cur_frame = frames[0]
         args = [
-            self.compose_carrots(arg, frames[1:])
-            if cur_frame == i
-            else self.compose_term(arg)
+            (
+                self.compose_carrots(arg, frames[1:])
+                if cur_frame == i
+                else self.compose_term(arg)
+            )
             for i, arg in enumerate(term._args)
         ]
 

@@ -24,11 +24,11 @@ import sys
 import threading
 from random import SystemRandom
 
-
-from . import ql2_pb2
 from rethinkdb.errors import ReqlAuthError, ReqlDriverError
 from rethinkdb.helpers import chain_to_bytes, decode_utf8
 from rethinkdb.logger import default_logger
+
+from . import ql2_pb2
 
 try:
     xrange
@@ -147,7 +147,9 @@ class HandshakeV1_0(object):
             username.encode("utf-8").replace(b"=", b"=3D").replace(b",", b"=2C")
         )
 
-        self._password = password.encode('utf-8') if isinstance(password, str) else password
+        self._password = (
+            password.encode("utf-8") if isinstance(password, str) else password
+        )
 
         self._compare_digest = self._get_compare_digest()
         self._pbkdf2_hmac = self._get_pbkdf2_hmac()
@@ -338,7 +340,7 @@ class HandshakeV1_0(object):
                     struct.unpack("32B", client_key),
                     struct.unpack("32B", client_signature),
                 )
-            )
+            ),
         )
 
         authentication_request = chain_to_bytes(

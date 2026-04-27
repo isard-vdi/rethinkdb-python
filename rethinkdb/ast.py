@@ -25,9 +25,9 @@ import json
 import sys
 import threading
 
+from rethinkdb.errors import QueryPrinter, ReqlDriverCompileError, ReqlDriverError, T
+
 from . import ql2_pb2
-from rethinkdb.errors import (QueryPrinter, ReqlDriverCompileError,
-                              ReqlDriverError, T)
 
 if sys.version_info < (3, 3):
     # python < 3.3 uses collections
@@ -921,7 +921,7 @@ class MakeObj(RqlQuery):
             "r.expr({",
             T(
                 *[T(repr(key), ": ", value) for key, value in dict_items(optargs)],
-                intsp=", "
+                intsp=", ",
             ),
             "})",
         )
@@ -1984,7 +1984,7 @@ class Func(RqlQuery):
             "lambda ",
             T(
                 *[v.compose([v._args[0].compose(None, None)], []) for v in self.vrs],
-                intsp=", "
+                intsp=", ",
             ),
             ": ",
             args[1],
