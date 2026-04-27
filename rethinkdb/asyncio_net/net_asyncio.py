@@ -71,28 +71,42 @@ class LRUCache(OrderedDict):
 
 
 async def _read_until(streamreader, delimiter):
-    """Optimized implementation of reading until a delimiter"""
-    buffer = bytearray()
+    """Read from an :class:`asyncio.StreamReader` up to and including
+    ``delimiter``.
 
-    # Read in chunks for better performance
-    chunk_size = 1024
+    Defers to :meth:`asyncio.StreamReader.readuntil` so any bytes that
+    arrive **after** the delimiter in the same TCP frame stay in the
+    reader's internal buffer and are available to the next
+    ``_read_until`` call. The previous implementation called
+    ``streamreader.read(1024)`` and silently discarded any post-delimiter
+    bytes; the only hint that this was lossy was an inline comment
+    saying "for production use, consider asyncio.StreamReader
+    replacement". In practice it manifested as
+    ``ReqlDriverError: Connection interrupted during handshake`` when a
+    consumer (typically a connection pool warming up) opened many
+    asyncio connections concurrently. The V1.0 handshake's two-step
+    pipelined JSON exchange can deliver both messages in the same TCP
+    frame under load, after which the original chunked read consumed
+    the first message and dropped the second on the floor — the next
+    read would then see EOF or block forever waiting for bytes that
+    had already been delivered.
 
-    while True:
-        chunk = await streamreader.read(chunk_size)
-        if not chunk:
-            break  # EOF
+    Uses stdlib :meth:`StreamReader.readuntil`, which buffers correctly:
+    only the delimited prefix is consumed; trailing bytes remain
+    available for subsequent reads.
 
-        delimiter_pos = chunk.find(delimiter)
-        if delimiter_pos >= 0:
-            # Found delimiter, add up to and including delimiter
-            buffer.extend(chunk[: delimiter_pos + len(delimiter)])
-            # Put back remaining data (if any) - not directly possible with asyncio StreamReader
-            # This is a limitation; for production use, consider asyncio.StreamReader replacement
-            break
-        else:
-            buffer.extend(chunk)
+    Behaviour preserved from the legacy implementation:
 
-    return bytes(buffer)
+    * Returns whatever bytes were read (including a trailing delimiter
+      if one was found) as a :class:`bytes` instance.
+    * On EOF before the delimiter is encountered, returns the partial
+      bytes read so far rather than raising — the caller's protocol
+      decoder is in charge of reporting "incomplete frame" errors.
+    """
+    try:
+        return await streamreader.readuntil(delimiter)
+    except asyncio.IncompleteReadError as err:
+        return err.partial
 
 
 def reusable_waiter(loop, timeout):
