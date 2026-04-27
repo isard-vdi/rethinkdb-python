@@ -22,9 +22,7 @@ import ssl
 import struct
 import sys
 from collections import OrderedDict
-from contextlib import asynccontextmanager
 
-from .. import ql2_pb2
 from rethinkdb.errors import (
     ReqlAuthError,
     ReqlCursorEmpty,
@@ -34,6 +32,8 @@ from rethinkdb.errors import (
 )
 from rethinkdb.net import Connection as ConnectionBase
 from rethinkdb.net import Cursor, Query, Response, maybe_profile
+
+from .. import ql2_pb2
 
 __all__ = ["Connection"]
 
@@ -85,7 +85,7 @@ async def _read_until(streamreader, delimiter):
         delimiter_pos = chunk.find(delimiter)
         if delimiter_pos >= 0:
             # Found delimiter, add up to and including delimiter
-            buffer.extend(chunk[:delimiter_pos + len(delimiter)])
+            buffer.extend(chunk[: delimiter_pos + len(delimiter)])
             # Put back remaining data (if any) - not directly possible with asyncio StreamReader
             # This is a limitation; for production use, consider asyncio.StreamReader replacement
             break
@@ -114,7 +114,7 @@ def reusable_waiter(loop, timeout):
             new_timeout = max(deadline - loop.time(), 0)
         else:
             new_timeout = None
-        return (await asyncio.wait_for(future, new_timeout))
+        return await asyncio.wait_for(future, new_timeout)
 
     return wait
 
@@ -142,7 +142,7 @@ class AsyncioCursor(Cursor):
 
     async def __anext__(self):
         try:
-            return (await self._get_next(None))
+            return await self._get_next(None)
         except ReqlCursorEmpty:
             raise StopAsyncIteration
 
@@ -197,8 +197,10 @@ class AsyncioCursor(Cursor):
             self.outstanding_requests += 1
             asyncio.create_task(self.conn._parent._continue(self))
 
+
 # Python <3.7's StreamWriter has no wait_closed().
 DO_WAIT_CLOSED = sys.version_info >= (3, 7)
+
 
 class ConnectionInstance(object):
     _streamreader = None
@@ -338,7 +340,7 @@ class ConnectionInstance(object):
 
         response_future = asyncio.Future()
         self._user_queries[query.token] = (query, response_future)
-        return (await response_future)
+        return await response_future
 
     # The _reader coroutine runs in parallel, reading responses
     # off of the socket and forwarding them to the appropriate Future or Cursor.
@@ -349,7 +351,10 @@ class ConnectionInstance(object):
         try:
             while True:
                 buf = await self._streamreader.readexactly(12)
-                (token, length,) = struct.unpack("<qL", buf)
+                (
+                    token,
+                    length,
+                ) = struct.unpack("<qL", buf)
                 buf = await self._streamreader.readexactly(length)
 
                 cursor = self._cursor_cache.get(token)
@@ -398,31 +403,19 @@ class Connection(ConnectionBase):
     async def __aexit__(self, exception_type, exception_val, traceback):
         await self.close(False)
 
-    @asynccontextmanager
-    async def transaction(self):
-        """Async context manager for database transactions"""
-        # This is a placeholder for potential transaction support
-        # RethinkDB doesn't have traditional transactions, but this could
-        # be used for grouped operations or connection-level optimizations
-        try:
-            yield self
-        finally:
-            # Any cleanup logic for transaction-like operations
-            pass
-
     async def _stop(self, cursor):
         self.check_open()
         q = Query(pQuery.STOP, cursor.query.token, None, None)
-        return (await self._instance.run_query(q, True))
+        return await self._instance.run_query(q, True)
 
     async def reconnect(self, noreply_wait=True, timeout=None):
         # We close before reconnect so reconnect doesn't try to close us
         # and then fail to return the Future (this is a little awkward).
         await self.close(noreply_wait)
         self._instance = self._conn_type(self, **self._child_kwargs)
-        return (await self._instance.connect(timeout))
+        return await self._instance.connect(timeout)
 
     async def close(self, noreply_wait=True):
         if self._instance is None:
             return None
-        return (await ConnectionBase.close(self, noreply_wait=noreply_wait))
+        return await ConnectionBase.close(self, noreply_wait=noreply_wait)
