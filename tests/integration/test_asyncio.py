@@ -1,42 +1,80 @@
-import sys
-from asyncio import coroutine
+"""Asyncio integration tests.
+
+These tests require a live RethinkDB server (default localhost:28015) and
+are skipped automatically when one isn't reachable. They exercise the
+asyncio backend end-to-end: connect, create table, insert, cursor iteration.
+"""
+
+import os
 
 import pytest
 
-from tests.helpers import INTEGRATION_TEST_DB, IntegrationTestCaseBase
+from rethinkdb import r
+
+INTEGRATION_TEST_DB = "integration_test"
+
+
+@pytest.fixture
+async def asyncio_conn():
+    """Per-test asyncio connection against the configured RethinkDB host."""
+    r.set_loop_type("asyncio")
+    host = os.getenv("RETHINKDB_HOST", "127.0.0.1")
+    conn = await r.connect(host=host)
+    try:
+        existing = await r.db_list().run(conn)
+        if INTEGRATION_TEST_DB not in existing:
+            await r.db_create(INTEGRATION_TEST_DB).run(conn)
+        conn.use(INTEGRATION_TEST_DB)
+        yield conn
+    finally:
+        try:
+            await r.db_drop(INTEGRATION_TEST_DB).run(conn)
+        except Exception:
+            # Database may already be gone; teardown should not mask test errors.
+            pass
+        await conn.close()
+        r.set_loop_type(None)
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-@pytest.mark.skipif(
-    sys.version_info == (3, 4) or sys.version_info == (3, 5),
-    reason="requires python3.4 or python3.5",
-)
-class TestAsyncio(IntegrationTestCaseBase):
-    def setup_method(self):
-        super(TestAsyncio, self).setup_method()
-        self.table_name = "test_asyncio"
-        self.r.set_loop_type("asyncio")
+async def test_insert_and_iterate(asyncio_conn):
+    table_name = "test_asyncio"
+    await r.table_create(table_name).run(asyncio_conn)
 
-    def teardown_method(self):
-        super(TestAsyncio, self).teardown_method()
-        self.r.set_loop_type(None)
+    table = r.table(table_name)
+    await table.insert(
+        {"id": 1, "name": "Iron Man", "first_appearance": "Tales of Suspense #39"}
+    ).run(asyncio_conn)
 
-    @coroutine
-    def test_flow_coroutine_paradigm(self):
-        connection = yield from self.conn
+    cursor = await table.run(asyncio_conn)
+    seen = []
+    async for hero in cursor:
+        seen.append(hero["name"])
 
-        yield from self.r.table_create(self.table_name).run(connection)
+    assert seen == ["Iron Man"]
 
-        table = self.r.table(self.table_name)
-        yield from table.insert(
-            {"id": 1, "name": "Iron Man", "first_appearance": "Tales of Suspense #39"}
-        ).run(connection)
 
-        cursor = yield from table.run(connection)
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_pool_acquire_release(asyncio_conn):
+    """End-to-end smoke test that AsyncioConnectionPool works with a real server."""
+    host = os.getenv("RETHINKDB_HOST", "127.0.0.1")
+    pool = r.create_pool(host=host, db=INTEGRATION_TEST_DB, max_size=3)
 
-        while (yield from cursor.fetch_next()):
-            hero = yield from cursor.__anext__()
-            assert hero["name"] == "Iron Man"
+    try:
+        async with pool.connection() as conn:
+            value = await r.expr(42).run(conn)
+            assert value == 42
 
-        yield from connection.close()
+        # Connection should be returned to the pool, not closed.
+        assert pool.in_use == 0
+        assert pool.idle == 1
+
+        # Acquire again and verify reuse.
+        async with pool.connection() as conn2:
+            assert pool.in_use == 1
+            assert await r.expr("hello").run(conn2) == "hello"
+    finally:
+        await pool.close()
+        assert pool.closed

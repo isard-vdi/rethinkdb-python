@@ -1,7 +1,7 @@
 import logging
+from unittest.mock import call, patch
 
 import pytest
-from mock import call, patch
 
 from rethinkdb.logger import DriverLogger
 

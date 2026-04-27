@@ -1,5 +1,6 @@
+from unittest.mock import Mock
+
 import pytest
-from mock import Mock
 
 from rethinkdb.helpers import chain_to_bytes, decode_utf8
 

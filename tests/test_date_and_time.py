@@ -1,5 +1,6 @@
+from unittest.mock import ANY, Mock, call, patch
+
 import pytest
-from mock import ANY, Mock, call, patch
 
 from rethinkdb import ast, r
 

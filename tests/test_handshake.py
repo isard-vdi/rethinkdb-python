@@ -1,10 +1,9 @@
 import base64
 import json
 import struct
+from unittest.mock import ANY, Mock, call, patch
 
 import pytest
-import six
-from mock import ANY, Mock, call, patch
 
 from rethinkdb.errors import ReqlAuthError, ReqlDriverError
 from rethinkdb.handshake import HandshakeV1_0, LocalThreadCache
@@ -228,11 +227,7 @@ class TestHandshake(object):
 
     def test_prepare_auth_request(self):
         self.handshake._next_state = Mock()
-        self.handshake._random_nonce = (
-            base64.encodebytes(b"random_nonce")
-            if six.PY3
-            else base64.b64encode(b"random_nonce")
-        )
+        self.handshake._random_nonce = base64.encodebytes(b"random_nonce")
         self.handshake._first_client_message = chain_to_bytes(
             "n=", self.handshake._username, ",r=", self.handshake._random_nonce
         )
@@ -240,22 +235,17 @@ class TestHandshake(object):
             "success": True,
             "authentication": "s=cmFuZG9tX25vbmNl\n,i=2,r=cmFuZG9tX25vbmNl\n",
         }
-        if six.PY3:
-            expected_result = b'{"authentication": "c=biws,r=cmFuZG9tX25vbmNl\\n,p=2Tpd60LM4Tkhe7VATTPj/lh4yunl07Sm4A+m3ukC774="}\x00'
-        else:
-            expected_result = b'{"authentication": "c=biws,r=cmFuZG9tX25vbmNl\\n,p=JqVP98bzu3yye/3SLopNJvCRimBx34uKI/EY8UI41gM="}\x00'
+        expected_result = b'{"authentication": "c=biws,r=cmFuZG9tX25vbmNl\\n,p=2Tpd60LM4Tkhe7VATTPj/lh4yunl07Sm4A+m3ukC774="}\x00'
 
         result = self.handshake._prepare_auth_request(json.dumps(response))
 
-        assert isinstance(result, six.binary_type)
+        assert isinstance(result, bytes)
         assert result == expected_result
         assert self.handshake._next_state.called is True
 
     def test_prepare_auth_request_invalid_nonce(self):
         self.handshake._next_state = Mock()
-        self.handshake._random_nonce = (
-            base64.encodebytes(b"invalid") if six.PY3 else base64.b64encode(b"invalid")
-        )
+        self.handshake._random_nonce = base64.encodebytes(b"invalid")
         response = {
             "success": True,
             "authentication": "s=fake,i=2,r=cmFuZG9tX25vbmNl\n",
