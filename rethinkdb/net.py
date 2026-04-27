@@ -18,14 +18,15 @@
 
 import collections
 import errno
+import inspect
 import numbers
 import pprint
 import socket
 import ssl
 import struct
 import time
+from typing import Any, Callable, List, Optional, Tuple
 
-from . import ql2_pb2
 from rethinkdb.ast import DB, Repl, ReQLDecoder, ReQLEncoder, expr
 from rethinkdb.errors import (
     ReqlAuthError,
@@ -47,10 +48,12 @@ from rethinkdb.errors import (
 from rethinkdb.handshake import HandshakeV1_0
 from rethinkdb.logger import default_logger
 
+from . import ql2_pb2
+
 try:
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import parse_qs, urlparse
 except ImportError:
-    from urlparse import urlparse, parse_qs
+    from urlparse import parse_qs, urlparse
 
 
 __all__ = [
@@ -70,16 +73,15 @@ pQuery = ql2_pb2.Query.QueryType
 
 
 try:
-    from ssl import match_hostname, CertificateError
+    from ssl import CertificateError, match_hostname
 except ImportError:
-    from .backports.ssl_match_hostname import match_hostname, CertificateError
+    from .backports.ssl_match_hostname import CertificateError, match_hostname
 
 try:
     {}.iteritems
 
     def dict_items(d):
         return d.iteritems()
-
 
 except AttributeError:
 
@@ -588,7 +590,10 @@ class ConnectionInstance(object):
                 # expected length of this response.
                 if self._header_in_progress is None:
                     self._header_in_progress = self._socket.recvall(12, deadline)
-                (res_token, res_len,) = struct.unpack("<qL", self._header_in_progress)
+                (
+                    res_token,
+                    res_len,
+                ) = struct.unpack("<qL", self._header_in_progress)
                 res_buf = self._socket.recvall(res_len, deadline)
                 self._header_in_progress = None
             except KeyboardInterrupt as ex:
@@ -615,6 +620,10 @@ class ConnectionInstance(object):
                 raise ReqlDriverError("Unexpected response received.")
 
 
+QueryStartHook = Callable[["Query"], None]
+QueryEndHook = Callable[["Query", float, Optional[BaseException]], None]
+
+
 class Connection(object):
     _r = None
     _json_decoder = ReQLDecoder
@@ -632,8 +641,10 @@ class Connection(object):
         timeout,
         ssl,
         _handshake_version,
-        **kwargs
+        **kwargs,
     ):
+        self._on_query_start: List[QueryStartHook] = []
+        self._on_query_end: List[QueryEndHook] = []
         self.db = db
 
         self.host = host
@@ -741,12 +752,102 @@ class Connection(object):
         self._next_token += 1
         return res
 
+    def add_query_observer(
+        self,
+        on_start: Optional[QueryStartHook] = None,
+        on_end: Optional[QueryEndHook] = None,
+    ) -> Tuple[Optional[QueryStartHook], Optional[QueryEndHook]]:
+        """Register a query lifecycle observer.
+
+        ``on_start`` is invoked with the :class:`Query` just before it is sent.
+        ``on_end`` is invoked with ``(query, duration, exception_or_None)``
+        after the first response (or error). For cursor-returning queries
+        ``duration`` is the time to first batch — subsequent ``CONTINUE``
+        traffic is not reported.
+
+        Hook callables run synchronously on the calling task; they should be
+        cheap and non-blocking. Exceptions raised inside hooks are caught and
+        logged but never propagate to the application.
+
+        Returns a token usable with :meth:`remove_query_observer`.
+        """
+        if on_start is not None:
+            self._on_query_start.append(on_start)
+        if on_end is not None:
+            self._on_query_end.append(on_end)
+        return (on_start, on_end)
+
+    def remove_query_observer(
+        self,
+        observer: Tuple[Optional[QueryStartHook], Optional[QueryEndHook]],
+    ) -> None:
+        """Unregister a previously-added observer (idempotent)."""
+        on_start, on_end = observer
+        if on_start is not None and on_start in self._on_query_start:
+            self._on_query_start.remove(on_start)
+        if on_end is not None and on_end in self._on_query_end:
+            self._on_query_end.remove(on_end)
+
+    def _fire_query_start(self, query: "Query") -> None:
+        for cb in self._on_query_start:
+            try:
+                cb(query)
+            except Exception as exc:
+                default_logger.warning("Query start observer raised: %r" % (exc,))
+
+    def _fire_query_end(
+        self,
+        query: "Query",
+        duration: float,
+        exception: Optional[BaseException],
+    ) -> None:
+        for cb in self._on_query_end:
+            try:
+                cb(query, duration, exception)
+            except Exception as exc:
+                default_logger.warning("Query end observer raised: %r" % (exc,))
+
+    def _run_query_observed(self, query: "Query", noreply: bool) -> Any:
+        """Forward to the underlying instance, firing observer hooks if any.
+
+        Sync vs async is detected by inspecting whether ``run_query`` returned
+        a coroutine; for async we wrap the coroutine so the after-hook fires
+        on real completion.
+        """
+        if not self._on_query_start and not self._on_query_end:
+            # Fast path: no observers registered, zero overhead.
+            return self._instance.run_query(query, noreply)
+
+        self._fire_query_start(query)
+        start = time.monotonic()
+        try:
+            result = self._instance.run_query(query, noreply)
+        except BaseException as exc:
+            self._fire_query_end(query, time.monotonic() - start, exc)
+            raise
+
+        if inspect.iscoroutine(result):
+
+            async def _awaited():
+                try:
+                    awaited = await result
+                except BaseException as exc:
+                    self._fire_query_end(query, time.monotonic() - start, exc)
+                    raise
+                self._fire_query_end(query, time.monotonic() - start, None)
+                return awaited
+
+            return _awaited()
+
+        self._fire_query_end(query, time.monotonic() - start, None)
+        return result
+
     def _start(self, term, **global_optargs):
         self.check_open()
         if "db" in global_optargs or self.db is not None:
             global_optargs["db"] = DB(global_optargs.get("db", self.db))
         q = Query(pQuery.START, self._new_token(), term, global_optargs)
-        return self._instance.run_query(q, global_optargs.get("noreply", False))
+        return self._run_query_observed(q, global_optargs.get("noreply", False))
 
     def _continue(self, cursor):
         self.check_open()
@@ -782,7 +883,7 @@ def make_connection(
     ssl=None,
     url=None,
     _handshake_version=10,
-    **kwargs
+    **kwargs,
 ):
     if url:
         connection_string = urlparse(url)
@@ -825,6 +926,6 @@ def make_connection(
         timeout,
         ssl,
         _handshake_version,
-        **kwargs
+        **kwargs,
     )
     return conn.reconnect(timeout=timeout)
