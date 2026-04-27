@@ -19,7 +19,6 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -29,7 +28,7 @@ classifiers = [
     "Topic :: Database :: Database Engines/Servers",
     "Typing :: Typed",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "looseversion",
 ]
@@ -107,7 +106,7 @@ exclude_lines = [
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py39']
 
 [tool.isort]
 profile = "black"
@@ -117,11 +116,12 @@ line_length = 88
 # strict per-module pass for the public API written with full type hints.
 # When you add a new public module, add it to the strict-overrides list.
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 warn_unused_ignores = true
 strict_equality = true
+ignore_missing_imports = true
 # Legacy modules (net.py, ast.py, _dump.py, etc.) are mostly untyped.
 # Don't break the world; opt the typed surface in via overrides.
 disallow_untyped_defs = false
@@ -147,3 +147,27 @@ ignore_errors = true
 # Generated protobuf stub — checked in by hand, not worth typing.
 module = ["rethinkdb.ql2_pb2"]
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Legacy CLI / data-import modules. Mostly untyped, with Py2-era
+# `unicode = str` shims that confuse mypy. Type these incrementally
+# in dedicated `chore(typing): annotate <module>` commits.
+module = [
+    "rethinkdb.ast",
+    "rethinkdb._dump",
+    "rethinkdb._export",
+    "rethinkdb._import",
+    "rethinkdb._index_rebuild",
+    "rethinkdb._restore",
+    "rethinkdb.docs",
+    "rethinkdb.errors",
+    "rethinkdb.handshake",
+    "rethinkdb.utils_common",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# pytest internals use match statements (3.10+ syntax) that trip the
+# 3.9 baseline we ask mypy to validate against.
+module = ["_pytest.*"]
+follow_imports = "skip"

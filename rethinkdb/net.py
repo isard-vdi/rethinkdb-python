@@ -26,6 +26,7 @@ import ssl
 import struct
 import time
 from typing import Any, Callable, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from rethinkdb.ast import DB, Repl, ReQLDecoder, ReQLEncoder, expr
 from rethinkdb.errors import (
@@ -50,12 +51,6 @@ from rethinkdb.logger import default_logger
 
 from . import ql2_pb2
 
-try:
-    from urllib.parse import parse_qs, urlparse
-except ImportError:
-    from urlparse import parse_qs, urlparse
-
-
 __all__ = [
     "Connection",
     "Cursor",
@@ -74,19 +69,15 @@ pQuery = ql2_pb2.Query.QueryType
 
 try:
     from ssl import CertificateError, match_hostname
-except ImportError:
-    from .backports.ssl_match_hostname import CertificateError, match_hostname
+except ImportError:  # Python 3.12 removed ssl.match_hostname.
+    from .backports.ssl_match_hostname import (  # type: ignore[assignment]
+        CertificateError,
+        match_hostname,
+    )
 
-try:
-    {}.iteritems
 
-    def dict_items(d):
-        return d.iteritems()
-
-except AttributeError:
-
-    def dict_items(d):
-        return d.items()
+def dict_items(d):
+    return d.items()
 
 
 def maybe_profile(value, res):

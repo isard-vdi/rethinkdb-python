@@ -34,7 +34,6 @@ import time
 import traceback
 from multiprocessing.queues import Queue, SimpleQueue
 
-
 from rethinkdb import ast, errors, query, utils_common
 from rethinkdb.logger import default_logger
 
@@ -43,11 +42,7 @@ try:
 except NameError:
     unicode = str
 
-try:
-    from Queue import Empty, Full
-except ImportError:
-    from queue import Empty, Full
-
+from queue import Empty, Full
 
 # json parameters
 JSON_READ_CHUNK_SIZE = 128 * 1024
@@ -273,9 +268,11 @@ class SourceFile(object):
             .for_each(
                 query.db(self.db).table_create(
                     query.row,
-                    **self.source_options["create_args"]
-                    if "create_args" in self.source_options
-                    else {}
+                    **(
+                        self.source_options["create_args"]
+                        if "create_args" in self.source_options
+                        else {}
+                    ),
                 )
             ),
         )
