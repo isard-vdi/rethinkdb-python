@@ -12,13 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from rethinkdb import errors, version
-
-# The builtins here defends against re-importing something obscuring `object`.
 import builtins
 
+from rethinkdb import errors, version
+from rethinkdb.connection_pool import (
+    AsyncioConnectionPool,
+    PoolClosedError,
+    PoolError,
+    PoolExhaustedError,
+    ThreadSafeConnectionPool,
+)
 
-__all__ = ["RethinkDB"] + errors.__all__
+__all__ = [
+    "RethinkDB",
+    "AsyncioConnectionPool",
+    "ThreadSafeConnectionPool",
+    "PoolError",
+    "PoolClosedError",
+    "PoolExhaustedError",
+] + errors.__all__
 __version__ = version.VERSION
 
 
@@ -33,8 +45,8 @@ class RethinkDB(builtins.object):
             _index_rebuild,
             _restore,
             ast,
-            query,
             net,
+            query,
         )
 
         self._dump = _dump
@@ -60,22 +72,27 @@ class RethinkDB(builtins.object):
     def set_loop_type(self, library=None):
         if library == "asyncio":
             from rethinkdb.asyncio_net import net_asyncio
+
             self.connection_type = net_asyncio.Connection
 
         if library == "gevent":
             from rethinkdb.gevent_net import net_gevent
+
             self.connection_type = net_gevent.Connection
 
         if library == "tornado":
             from rethinkdb.tornado_net import net_tornado
+
             self.connection_type = net_tornado.Connection
 
         if library == "trio":
             from rethinkdb.trio_net import net_trio
+
             self.connection_type = net_trio.Connection
 
         if library == "twisted":
             from rethinkdb.twisted_net import net_twisted
+
             self.connection_type = net_twisted.Connection
 
         if library is None or self.connection_type is None:
@@ -85,6 +102,48 @@ class RethinkDB(builtins.object):
 
     def connect(self, *args, **kwargs):
         return self.make_connection(self.connection_type, *args, **kwargs)
+
+    def create_pool(self, *args, max_size=10, max_idle_time=300.0, **kwargs):
+        """Create a connection pool that produces connections via :meth:`connect`.
+
+        Returns an :class:`AsyncioConnectionPool` if the active loop type is
+        ``"asyncio"``, otherwise a :class:`ThreadSafeConnectionPool`. Raises
+        :class:`RuntimeError` for the tornado/trio/gevent/twisted backends —
+        those would require backend-specific pool implementations.
+
+        ``*args`` and ``**kwargs`` are forwarded to :meth:`connect` each time
+        the factory creates a new physical connection.
+        """
+        from rethinkdb.asyncio_net.net_asyncio import Connection as _AsyncioConnection
+
+        if self.connection_type is _AsyncioConnection:
+
+            async def async_factory():
+                return await self.connect(*args, **kwargs)
+
+            return AsyncioConnectionPool(
+                async_factory,
+                max_size=max_size,
+                max_idle_time=max_idle_time,
+            )
+
+        if self.connection_type is self.net.DefaultConnection:
+
+            def sync_factory():
+                return self.connect(*args, **kwargs)
+
+            return ThreadSafeConnectionPool(
+                sync_factory,
+                max_size=max_size,
+                max_idle_time=max_idle_time,
+            )
+
+        raise RuntimeError(
+            f"Connection pooling is not supported for "
+            f"{self.connection_type.__name__}; use 'asyncio' loop type or the "
+            "default sync backend, or construct a pool directly with a custom "
+            "connection factory."
+        )
 
 
 # Initialize r after all imports are resolved
