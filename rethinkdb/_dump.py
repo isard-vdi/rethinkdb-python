@@ -20,8 +20,6 @@
 
 """`rethinkdb-dump` creates an archive of data from a RethinkDB cluster"""
 
-from __future__ import print_function
-
 import datetime
 import os
 import platform
@@ -236,9 +234,11 @@ def main(argv=None, prog=None):
                     "Done (%.2f seconds): %s"
                     % (
                         time.time() - start_time,
-                        options.out_file.name
-                        if hasattr(options.out_file, "name")
-                        else options.out_file,
+                        (
+                            options.out_file.name
+                            if hasattr(options.out_file, "name")
+                            else options.out_file
+                        ),
                     )
                 )
         except KeyboardInterrupt:

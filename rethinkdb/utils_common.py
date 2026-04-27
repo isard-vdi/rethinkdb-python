@@ -15,11 +15,8 @@
 # This file incorporates work covered by the following copyright:
 # Copyright 2010-2016 RethinkDB, all rights reserved.
 
-from __future__ import print_function
-
 import collections
 import copy
-from looseversion import LooseVersion
 import getpass
 import inspect
 import optparse
@@ -27,6 +24,8 @@ import os
 import re
 import sys
 import threading
+
+from looseversion import LooseVersion
 
 from rethinkdb import ast, errors, net, query, version
 
@@ -261,7 +260,7 @@ class CommonOptionsParser(optparse.OptionParser, object):
 
         def combined_connect_action(obj, opt, value, parser, *args, **kwargs):
             """optparse.takeaction() calls the callback (which this is set as)
-               with the following args: self, opt, value, parser *args, **kwargs
+            with the following args: self, opt, value, parser *args, **kwargs
             """
             res = self.__connectRegex.match(value)
             if not res:
@@ -308,7 +307,9 @@ class CommonOptionsParser(optparse.OptionParser, object):
 
                     values.ensure_value(dest, {})[self.metavar.lower()] = value
                 elif action == "get_password":
-                    values.ensure_value('password', getpass.getpass("Password for `admin`: "))
+                    values.ensure_value(
+                        "password", getpass.getpass("Password for `admin`: ")
+                    )
                 else:
                     super(CommonOptionChecker, self).take_action(
                         action, dest, opt, value, values, parser
