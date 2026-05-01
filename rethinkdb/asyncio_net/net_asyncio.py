@@ -308,7 +308,7 @@ class ConnectionInstance(object):
 
         # Start a parallel function to perform reads
         #  store a reference to it so it doesn't get destroyed
-        self._reader_task = asyncio.ensure_future(self._reader(), loop=self._io_loop)
+        self._reader_task = asyncio.create_task(self._reader())
         return self._parent
 
     def is_open(self):
@@ -321,11 +321,15 @@ class ConnectionInstance(object):
         else:
             err_message = "Connection is closed."
 
-        # Cursors may remove themselves when errored, so copy a list of them
+        # Cursors may remove themselves when errored, so copy a list of them.
+        # Same defensive snapshot for _user_queries: a future's done callbacks
+        # are normally scheduled (not run synchronously) so it's currently safe
+        # to iterate the live dict, but the snapshot keeps both paths
+        # consistent and cheap.
         for cursor in list(self._cursor_cache.values()):
             cursor._error(err_message)
 
-        for query, future in iter(self._user_queries.values()):
+        for query, future in list(self._user_queries.values()):
             if not future.done():
                 future.set_exception(ReqlDriverError(err_message))
 
