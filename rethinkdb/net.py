@@ -780,7 +780,9 @@ class Connection(object):
             self._on_query_end.remove(on_end)
 
     def _fire_query_start(self, query: "Query") -> None:
-        for cb in self._on_query_start:
+        # Snapshot so a hook that calls remove_query_observer on itself
+        # doesn't skip a sibling hook by mutating the list mid-iteration.
+        for cb in list(self._on_query_start):
             try:
                 cb(query)
             except Exception as exc:
@@ -792,7 +794,7 @@ class Connection(object):
         duration: float,
         exception: Optional[BaseException],
     ) -> None:
-        for cb in self._on_query_end:
+        for cb in list(self._on_query_end):
             try:
                 cb(query, duration, exception)
             except Exception as exc:
