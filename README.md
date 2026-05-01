@@ -57,7 +57,7 @@ for hero in marvel_heroes.run(connection):
 ```
 
 ### Asyncio mode
-Asyncio mode is compatible with Python ≥ 3.5.
+Asyncio mode requires Python ≥ 3.9 (the package floor).
 
 ```python
 import asyncio
@@ -74,8 +74,6 @@ async def main():
             'first_appearance': 'Tales of Suspense #39'
         }).run(connection)
 
-        # "async for" is supported in Python ≥ 3.6. In earlier versions, you should
-        # call "await cursor.next()" in a loop.
         cursor = await marvel_heroes.run(connection)
         async for hero in cursor:
             print(hero['name'])
@@ -83,8 +81,6 @@ async def main():
 
 r.set_loop_type('asyncio')
 
-# "asyncio.run" was added in Python 3.7.  In earlier versions, you
-# might try asyncio.get_event_loop().run_until_complete(main()).
 asyncio.run(main())
 ```
 
@@ -161,8 +157,6 @@ async def main():
                 'first_appearance': 'Tales of Suspense #39'
             }).run(conn)
 
-            # "async for" is supported in Python ≥ 3.6. In earlier versions, you should
-            # call "await cursor.next()" in a loop.
             cursor = await marvel_heroes.run(conn)
             async with cursor:
                 async for hero in cursor:
