@@ -76,10 +76,6 @@ except ImportError:  # Python 3.12 removed ssl.match_hostname.
     )
 
 
-def dict_items(d):
-    return d.items()
-
-
 def maybe_profile(value, res):
     if res.profile is not None:
         return {"value": value, "profile": res.profile}
