@@ -341,9 +341,7 @@ class SocketWrapper(object):
 
             if len(self.ssl) > 0:
                 try:
-                    if hasattr(
-                        ssl, "SSLContext"
-                    ):  # Python2.7 and 3.2+, or backports.ssl
+                    if hasattr(ssl, "SSLContext"):
                         ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
                         if hasattr(ssl_context, "options"):
                             ssl_context.options |= getattr(ssl, "OP_NO_SSLv2", 0)

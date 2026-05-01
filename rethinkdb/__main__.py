@@ -81,12 +81,7 @@ if __name__ == "__main__":
         )
 
     verb = sys.argv[1]
-    prog = "python -m rethinkdb"
-    if sys.version_info < (2, 7) or (
-        sys.version_info >= (3, 0) and sys.version_info < (3, 4)
-    ):
-        prog += ".__main__"  # Python versions 2.6, 3.0, 3.1 and 3.3 do not support running packages
-    prog += " " + verb
+    prog = "python -m rethinkdb " + verb
     argv = sys.argv[2:]
 
     if verb == "dump":

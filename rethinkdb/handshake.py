@@ -157,22 +157,12 @@ class HandshakeV1_0(object):
 
     @staticmethod
     def _get_compare_digest():
-        """
-        Get the compare_digest function from hashlib if package contains it, else get
-        our own function. Please note that hashlib contains this function only for
-        Python 2.7.7+ and 3.3+.
-        """
-
+        """Return hmac.compare_digest, falling back to our own if monkey-patched away."""
         return getattr(hmac, "compare_digest", compare_digest)
 
     @staticmethod
     def _get_pbkdf2_hmac():
-        """
-        Get the pbkdf2_hmac function from hashlib if package contains it, else get
-        our own function. Please note that hashlib contains this function only for
-        Python 2.7.8+ and 3.4+.
-        """
-
+        """Return hashlib.pbkdf2_hmac, falling back to our own if monkey-patched away."""
         return getattr(hashlib, "pbkdf2_hmac", pbkdf2_hmac)
 
     @staticmethod
