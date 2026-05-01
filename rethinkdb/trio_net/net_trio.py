@@ -341,7 +341,7 @@ class ConnectionInstance:
             pass
         # We must not wait for the _reader_task if we got an exception, because that
         # means that we were called from it. Waiting would lead to a deadlock.
-        if self._reader_ended_event:
+        if self._reader_ended_event is not None:
             await self._reader_ended_event.wait()
 
         return None
