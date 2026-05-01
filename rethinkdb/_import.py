@@ -32,11 +32,10 @@ import sys
 import time
 import traceback
 from multiprocessing.queues import Queue, SimpleQueue
+from queue import Empty, Full
 
 from rethinkdb import ast, errors, query, utils_common
 from rethinkdb.logger import default_logger
-
-from queue import Empty, Full
 
 # json parameters
 JSON_READ_CHUNK_SIZE = 128 * 1024
