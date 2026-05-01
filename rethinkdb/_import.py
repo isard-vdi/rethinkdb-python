@@ -36,11 +36,6 @@ from multiprocessing.queues import Queue, SimpleQueue
 from rethinkdb import ast, errors, query, utils_common
 from rethinkdb.logger import default_logger
 
-try:
-    unicode
-except NameError:
-    unicode = str
-
 from queue import Empty, Full
 
 # json parameters
@@ -117,8 +112,8 @@ class SourceFile(object):
 
         # source
         if hasattr(source, "read"):
-            if unicode != str or "b" in source.mode:
-                # Python2.x or binary file, assume utf-8 encoding
+            if "b" in source.mode:
+                # Binary file: decode utf-8 on the way in.
                 self._source = codecs.getreader("utf-8")(source)
             else:
                 # assume that it has the right encoding on it
@@ -651,12 +646,7 @@ class CsvSourceFile(SourceFile):
 
         for line in self._source:
             self._bytes_read.value += len(line)
-            if unicode != str:
-                yield line.encode(
-                    "utf-8"
-                )  # Python2.x csv module does not really handle unicode
-            else:
-                yield line
+            yield line
 
     def setup_file(self, warning_queue=None):
         # - setup csv.reader with a byte counter wrapper
@@ -693,7 +683,7 @@ class CsvSourceFile(SourceFile):
             # treat empty fields as no entry rather than empty string
             if value == "":
                 continue
-            row[key] = value if str == unicode else unicode(value, encoding="utf-8")
+            row[key] = value
 
         return row
 

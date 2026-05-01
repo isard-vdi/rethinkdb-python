@@ -38,10 +38,6 @@ else:
 
 P_TERM = ql2_pb2.Term.TermType
 
-try:
-    unicode
-except NameError:
-    unicode = str
 
 def dict_items(dictionary):
     return list(dictionary.items())
@@ -100,7 +96,7 @@ def expr(val, nesting_depth=20):
         return ISO8601(val.isoformat())
     elif isinstance(val, RqlBinary):
         return Binary(val)
-    elif isinstance(val, (str, unicode)):
+    elif isinstance(val, str):
         return Datum(val)
     elif isinstance(val, bytes):
         return Binary(val)
@@ -900,7 +896,7 @@ class MakeObj(RqlQuery):
     def __init__(self, obj_dict):
         super(MakeObj, self).__init__()
         for key, value in dict_items(obj_dict):
-            if not isinstance(key, (str, unicode)):
+            if not isinstance(key, str):
                 raise ReqlDriverCompileError("Object keys must be strings.")
             self.optargs[key] = expr(value)
 
@@ -1731,15 +1727,14 @@ class Binary(RqlTopLevelQuery):
     statement = "binary"
 
     def __init__(self, data):
-        # We only allow 'bytes' objects to be serialized as binary
-        # Python 2 - `bytes` is equivalent to `str`, either will be accepted
-        # Python 3 - `unicode` is equivalent to `str`, neither will be accepted
+        # We only allow 'bytes' objects to be serialized as binary;
+        # str is rejected so callers must pick an explicit encoding.
         if isinstance(data, RqlQuery):
             RqlTopLevelQuery.__init__(self, data)
-        elif isinstance(data, unicode):
+        elif isinstance(data, str):
             raise ReqlDriverCompileError(
-                "Cannot convert a unicode string to binary, "
-                "use `unicode.encode()` to specify the "
+                "Cannot convert a str to binary, "
+                "use `str.encode()` to specify the "
                 "encoding."
             )
         elif not isinstance(data, bytes):

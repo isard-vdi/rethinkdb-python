@@ -37,12 +37,6 @@ from multiprocessing.queues import SimpleQueue
 from rethinkdb import errors, query, utils_common
 from rethinkdb.logger import default_logger
 
-try:
-    unicode
-except NameError:
-    unicode = str
-
-
 usage = """rethinkdb export [-c HOST:PORT] [-p] [--password-file FILENAME] [--tls-cert filename] [-d DIR]
       [-e (DB | DB.TABLE)]...
       [--format (csv | json | ndjson)] [--fields FIELD,FIELD...] [--delimiter CHARACTER]
@@ -241,13 +235,8 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
                         info.append(str(row[field]))
                     elif isinstance(row[field], str):
                         info.append(row[field])
-                    elif isinstance(row[field], unicode):
-                        info.append(row[field].encode("utf-8"))
                     else:
-                        if str == unicode:
-                            info.append(json.dumps(row[field]))
-                        else:
-                            info.append(json.dumps(row[field]).encode("utf-8"))
+                        info.append(json.dumps(row[field]))
                 out_writer.writerow(info)
                 item = task_queue.get()
     except BaseException:
