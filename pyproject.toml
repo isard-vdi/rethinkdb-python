@@ -30,7 +30,7 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "looseversion",
+    "packaging>=21.0",
 ]
 
 [project.optional-dependencies]

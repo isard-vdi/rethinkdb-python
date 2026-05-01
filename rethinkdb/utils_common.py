@@ -25,7 +25,7 @@ import re
 import sys
 import threading
 
-from looseversion import LooseVersion
+from packaging.version import Version
 
 from rethinkdb import ast, errors, net, query, version
 
@@ -145,7 +145,7 @@ def print_progress(ratio, indent=0, read=None, write=None):
 
 
 def check_minimum_version(options, minimum_version="1.6", raise_exception=True):
-    minimum_version = LooseVersion(minimum_version)
+    minimum_version = Version(minimum_version)
     version_string = options.retryQuery(
         "get server version",
         query.db("rethinkdb").table("server_status")[0]["process"]["version"],
@@ -158,7 +158,7 @@ def check_minimum_version(options, minimum_version="1.6", raise_exception=True):
     if not matches:
         raise RuntimeError("invalid version string format: %s" % version_string)
 
-    if LooseVersion(matches.group("version")) < minimum_version:
+    if Version(matches.group("version")) < minimum_version:
         if raise_exception:
             raise RuntimeError(
                 "Incompatible version, expected >= %s got: %s"
