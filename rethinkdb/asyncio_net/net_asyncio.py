@@ -232,8 +232,12 @@ class ConnectionInstance(object):
             try:
                 self._io_loop = asyncio.get_running_loop()
             except RuntimeError:
-                # Fallback for older Python versions or when no loop is running
-                self._io_loop = asyncio.get_event_loop()
+                # Sync-context fallback: no running loop in this thread.
+                # asyncio.get_event_loop() is deprecated for this case
+                # since Python 3.10; create a fresh loop instead. Callers
+                # are still responsible for actually running it (e.g. via
+                # asyncio.run on the user-facing side).
+                self._io_loop = asyncio.new_event_loop()
 
     def client_port(self):
         if self.is_open():
