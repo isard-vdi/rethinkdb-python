@@ -275,7 +275,10 @@ class AsyncioConnectionPool:
     def _is_usable(connection: Any) -> bool:
         try:
             return bool(connection.is_open())
-        except Exception:
+        except Exception as exc:
+            default_logger.warning(
+                f"Pooled connection is_open() raised, treating as dead: {exc!r}"
+            )
             return False
 
     @staticmethod
@@ -492,7 +495,10 @@ class ThreadSafeConnectionPool:
     def _is_usable(connection: Any) -> bool:
         try:
             return bool(connection.is_open())
-        except Exception:
+        except Exception as exc:
+            default_logger.warning(
+                f"Pooled connection is_open() raised, treating as dead: {exc!r}"
+            )
             return False
 
     @staticmethod
