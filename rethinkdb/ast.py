@@ -43,12 +43,6 @@ try:
 except NameError:
     unicode = str
 
-try:
-    xrange
-except NameError:
-    xrange = range
-
-
 def dict_items(dictionary):
     return list(dictionary.items())
 
@@ -640,7 +634,7 @@ class RqlBoolOperQuery(RqlQuery):
     def compose(self, args, optargs):
         t_args = [
             T("r.expr(", args[i], ")") if needs_wrap(self._args[i]) else args[i]
-            for i in xrange(len(args))
+            for i in range(len(args))
         ]
 
         if self.infix:
@@ -653,7 +647,7 @@ class RqlBiOperQuery(RqlQuery):
     def compose(self, args, optargs):
         t_args = [
             T("r.expr(", args[i], ")") if needs_wrap(self._args[i]) else args[i]
-            for i in xrange(len(args))
+            for i in range(len(args))
         ]
         return T("(", T(*t_args, intsp=[" ", self.statement, " "]), ")")
 
@@ -1717,7 +1711,7 @@ class RqlBinary(bytes):
 
     def __repr__(self):
         excerpt = binascii.hexlify(self[0:6]).decode("utf-8")
-        excerpt = " ".join([excerpt[i : i + 2] for i in xrange(0, len(excerpt), 2)])
+        excerpt = " ".join([excerpt[i : i + 2] for i in range(0, len(excerpt), 2)])
         excerpt = (
             ", '%s%s'" % (excerpt, "..." if len(self) > 6 else "")
             if len(self) > 0
@@ -1965,7 +1959,7 @@ class Func(RqlQuery):
             code = lmbd.func_code
         except AttributeError:
             code = lmbd.__code__
-        for i in xrange(code.co_argcount):
+        for i in range(code.co_argcount):
             Func.lock.acquire()
             var_id = Func.nextVarId
             Func.nextVarId += 1

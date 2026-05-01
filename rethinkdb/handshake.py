@@ -30,11 +30,6 @@ from rethinkdb.logger import default_logger
 
 from . import ql2_pb2
 
-try:
-    xrange
-except NameError:
-    xrange = range
-
 
 def compare_digest(digest_a, digest_b):
     if sys.version_info[0] == 3:
@@ -95,7 +90,7 @@ def pbkdf2_hmac(hash_name, password, salt, iterations):
 
     t = digest(salt + b"\x00\x00\x00\x01")
     u = from_bytes(t)
-    for c in xrange(iterations - 1):
+    for c in range(iterations - 1):
         t = digest(t)
         u ^= from_bytes(t)
 
