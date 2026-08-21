@@ -101,13 +101,25 @@ class SourceFile(object):
 
         self.query_runner = query_runner
 
-        # reporting information
-        self._bytes_size = utils_common.mp_context().Value(ctypes.c_longlong, -1)
-        self._bytes_read = utils_common.mp_context().Value(ctypes.c_longlong, -1)
+        # Reporting counters shared with the workers.  Only _rows_written is
+        # contended -- several writers add to it -- so it is the only one that
+        # needs a lock.  The other four are written by a single process and read
+        # by the progress bar, and a plain RawValue is enough.
+        #
+        # That distinction is not cosmetic.  A locked Value allocates a POSIX
+        # semaphore, and musl caps a process at 256 of them; five per table meant
+        # a restore died in parse_sources with "OSError: [Errno 24] No file
+        # descriptors available" past ~51 tables, before reaching any Process.
+        # A real database has more tables than that, so restore failed on the
+        # Alpine images regardless of the start method.  One semaphore per table
+        # keeps the ceiling far away.
+        ctx = utils_common.mp_context()
+        self._bytes_size = ctx.RawValue(ctypes.c_longlong, -1)
+        self._bytes_read = ctx.RawValue(ctypes.c_longlong, -1)
 
-        self._total_rows = utils_common.mp_context().Value(ctypes.c_longlong, -1)
-        self._rows_read = utils_common.mp_context().Value(ctypes.c_longlong, 0)
-        self._rows_written = utils_common.mp_context().Value(ctypes.c_longlong, 0)
+        self._total_rows = ctx.RawValue(ctypes.c_longlong, -1)
+        self._rows_read = ctx.RawValue(ctypes.c_longlong, 0)
+        self._rows_written = ctx.Value(ctypes.c_longlong, 0)
 
         # source
         if hasattr(source, "read"):

@@ -467,10 +467,20 @@ def run_clients(options, workingDir, db_table_set):
                 )
             )
 
+            # Per-table progress counters: written only by that table's own
+            # worker and read by update_progress here, never contended, so a
+            # RawValue is enough and a lock would be wasted.
+            #
+            # It would not merely be wasted.  A locked Value allocates a POSIX
+            # semaphore and musl caps a process at 256, so two per table put the
+            # ceiling at about 128 tables -- past that the export died with
+            # "OSError: [Errno 24] No file descriptors available" before writing
+            # anything.  sindex_counter and hook_counter below keep their locks:
+            # every worker increments those, and there are only two of them.
             progress_info.append(
                 (
-                    ctx.Value(ctypes.c_longlong, 0),
-                    ctx.Value(ctypes.c_longlong, tableSize),
+                    ctx.RawValue(ctypes.c_longlong, 0),
+                    ctx.RawValue(ctypes.c_longlong, tableSize),
                 )
             )
             arg_lists.append(
