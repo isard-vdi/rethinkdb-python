@@ -19,6 +19,7 @@ import collections
 import copy
 import getpass
 import inspect
+import multiprocessing
 import optparse
 import os
 import re
@@ -30,6 +31,32 @@ from packaging.version import Version
 from rethinkdb import ast, errors, net, query, version
 
 default_batch_size = 200
+
+
+def mp_context():
+    """Return the multiprocessing context the export/import workers can use.
+
+    Python 3.14 changed the default start method on Linux from ``fork`` to
+    ``forkserver``.  ``forkserver`` pickles whatever is handed to ``Process``,
+    and both the exporter and the importer pass live objects to their workers:
+    ``options`` carries a :class:`RetryQuery`, which holds a
+    ``threading.local``, and the importer additionally passes ``SourceFile``
+    instances and one bound method.  None of that can be pickled, so code that
+    works unchanged on 3.13 dies on 3.14 with::
+
+        TypeError: cannot pickle '_thread._local' object
+
+    Under ``fork`` those objects were inherited through memory and never
+    serialized.  Asking for ``fork`` explicitly keeps the behaviour this code
+    was written for, and every primitive shared with a worker must come from
+    this same context: mixing contexts is a bug of its own.
+    """
+    try:
+        return multiprocessing.get_context("fork")
+    except ValueError:
+        # No fork on this platform.  The workers then need picklable
+        # arguments, which is a larger change than restoring the old default.
+        return multiprocessing.get_context(multiprocessing.get_start_method())
 
 
 class RetryQuery(object):

@@ -44,6 +44,7 @@ __all__ = [
     "RqlTimeoutError",
 ]
 
+
 def convertForPrint(inputString):
     return inputString
 

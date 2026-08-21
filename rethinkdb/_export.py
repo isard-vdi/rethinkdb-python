@@ -248,31 +248,6 @@ def csv_writer(filename, fields, delimiter, task_queue, error_queue):
             pass
 
 
-def _mp_context():
-    """Return the multiprocessing context the exporter can actually use.
-
-    Python 3.14 changed the default start method on Linux from ``fork`` to
-    ``forkserver``.  ``forkserver`` **pickles** the arguments handed to
-    ``Process``, and the exporter passes ``options`` — which carries a
-    ``RetryQuery`` holding a ``threading.local`` — straight into the worker.
-    Under ``fork`` those arguments were inherited through memory and never
-    serialized, so the same code that worked on 3.13 dies on 3.14 with::
-
-        TypeError: cannot pickle '_thread._local' object
-
-    The failure is nastier than it looks: with an EMPTY database the exporter
-    never spawns a worker, so it exits 0 and a smoke test passes; and when it
-    does fail it does so *after* the progress bar has been painted to 100%.
-
-    Keeping ``fork`` here preserves the behaviour this code was written for.
-    """
-    try:
-        return multiprocessing.get_context("fork")
-    except ValueError:
-        # No fork on this platform (Windows, or a future Python that drops it).
-        # The exporter will then need picklable arguments to work at all.
-        return multiprocessing.get_context(multiprocessing.get_start_method())
-
 def export_table(
     db,
     table,
@@ -323,7 +298,7 @@ def export_table(
         with sindex_counter.get_lock():
             sindex_counter.value += len(table_info["indexes"])
         # -- start the writer
-        ctx = _mp_context()
+        ctx = utils_common.mp_context()
         task_queue = SimpleQueue(ctx=ctx)
 
         writer = None
@@ -467,7 +442,7 @@ def update_progress(progress_info, options):
 
 def run_clients(options, workingDir, db_table_set):
     # Spawn one client for each db.table, up to options.clients at a time
-    ctx = _mp_context()
+    ctx = utils_common.mp_context()
     exit_event = ctx.Event()
     processes = []
     error_queue = SimpleQueue(ctx=ctx)
@@ -523,9 +498,7 @@ def run_clients(options, workingDir, db_table_set):
             processes = [process for process in processes if process.is_alive()]
 
             if len(processes) < options.clients and len(arg_lists) > 0:
-                new_process = ctx.Process(
-                    target=export_table, args=arg_lists.pop(0)
-                )
+                new_process = ctx.Process(target=export_table, args=arg_lists.pop(0))
                 new_process.start()
                 processes.append(new_process)
 
