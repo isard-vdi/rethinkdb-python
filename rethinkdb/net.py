@@ -64,6 +64,9 @@ __all__ = [
 
 DEFAULT_PORT = 28015
 
+_GROW_STEP = 1 << 20
+_ZEROS = memoryview(bytes(_GROW_STEP))
+
 pErrorType = ql2_pb2.Response.ErrorType
 pResponse = ql2_pb2.Response.ResponseType
 pQuery = ql2_pb2.Query.QueryType
@@ -487,21 +490,29 @@ class SocketWrapper(object):
         sock = self._socket
         if sock is None:
             raise ReqlDriverError("Connection is closed.")
-        buf = bytearray(length)
-        view = memoryview(buf)
-        got = 0
-        if self._read_buffer:
-            got = len(self._read_buffer)
-            buf[:got] = self._read_buffer
-            self._read_buffer = None
+        pending = self._read_buffer
+        self._read_buffer = None
+        if pending:
+            buf = bytearray(pending)
+            got = len(buf)
+        else:
+            # The length comes from the wire: grow as data arrives.
+            buf = bytearray(min(length, _GROW_STEP))
+            got = 0
         try:
             while got < length:
+                if got == len(buf):
+                    buf += _ZEROS[: min(_GROW_STEP, length - got)]
                 if deadline is not None:
                     sock.settimeout(max(deadline - time.monotonic(), 0))
                 try:
-                    received = sock.recv_into(view[got:])
+                    if got == 0:
+                        received = sock.recv_into(buf)
+                    else:
+                        with memoryview(buf) as view, view[got:] as free:
+                            received = sock.recv_into(free)
                 except (socket.timeout, BlockingIOError, ssl.SSLWantReadError):
-                    self._read_buffer = bytes(view[:got]) or None
+                    self._read_buffer = bytes(buf[:got]) or None
                     raise ReqlTimeoutError(self.host, self.port)
                 except IOError as ex:
                     self.close()

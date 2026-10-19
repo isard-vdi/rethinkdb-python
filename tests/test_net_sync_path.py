@@ -690,3 +690,38 @@ class TestDecode:
             value = ReQLDecoder().convert_time({"epoch_time": 1700000000.25})
         assert value == datetime.datetime(2023, 11, 14, 22, 13, 20, 250000)
         assert value.tzinfo is None
+
+
+@pytest.mark.unit
+class TestFrameLength:
+    def test_header_length_is_not_preallocated(self):
+        conn, server = _wire()
+        server.sendall(struct.pack("<QL", 0, 1 << 28) + b'{"t":')
+        server.shutdown(socket.SHUT_WR)
+        tracemalloc.start()
+        try:
+            with pytest.raises(ReqlDriverError):
+                _bounded(conn.server, on_hang=lambda: _close_quietly(server))
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+            _close_quietly(server)
+        assert not conn.is_open()
+        assert peak < 16 * 1024 * 1024
+
+    def test_resumed_frame_grows_past_buffered_bytes(self):
+        conn, server = _wire()
+        sw = conn._instance._socket
+        size = 3 * 1024 * 1024 + 17
+        payload = bytes(range(256)) * (size // 256) + b"x" * (size % 256)
+        sw._read_buffer = payload[:5]
+        server.sendall(payload[5:1000])
+        feeder = threading.Thread(
+            target=lambda: server.sendall(payload[1000:]), daemon=True
+        )
+        feeder.start()
+        got = _bounded(lambda: sw.recvall(size, time.monotonic() + 5), limit=10)
+        feeder.join(2)
+        assert got == payload
+        assert sw._read_buffer is None
+        _close_quietly(server)
