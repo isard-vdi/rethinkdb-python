@@ -796,7 +796,9 @@ class ReQLDecoder(json.JSONDecoder):
                 obj["epoch_time"], RqlTzinfo(obj["timezone"])
             )
         else:
-            return datetime.datetime.utcfromtimestamp(obj["epoch_time"])
+            return datetime.datetime.fromtimestamp(
+                obj["epoch_time"], datetime.timezone.utc
+            ).replace(tzinfo=None)
 
     @staticmethod
     def convert_grouped_data(obj):

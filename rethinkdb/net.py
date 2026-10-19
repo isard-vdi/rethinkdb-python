@@ -19,6 +19,7 @@
 import collections
 import errno
 import inspect
+import json
 import numbers
 import pprint
 import socket
@@ -108,12 +109,14 @@ class Query(object):
 
 class Response(object):
     def __init__(self, token, json_str, reql_decoder=ReQLDecoder()):
-        try:
-            json_str = json_str.decode("utf-8")
-        except AttributeError:
-            pass  # Python3 str objects are already utf-8
         self.token = token
-        full_response = reql_decoder.decode(json_str)
+        marker = "$reql_type$" if isinstance(json_str, str) else b"$reql_type$"
+        if type(reql_decoder) is ReQLDecoder and marker not in json_str:
+            full_response = json.loads(json_str)
+        else:
+            if not isinstance(json_str, str):
+                json_str = json_str.decode("utf-8")
+            full_response = reql_decoder.decode(json_str)
         self.type = full_response["t"]
         self.data = full_response["r"]
         self.backtrace = full_response.get("b", None)

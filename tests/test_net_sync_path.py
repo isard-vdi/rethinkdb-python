@@ -648,3 +648,45 @@ class TestSocketOptions:
             assert not conn.is_open()
         finally:
             _close_quietly(server)
+
+
+PAYLOADS = [
+    b'{"t":1,"r":[{"a":1,"b":[1,2,{"c":"d"}],"e":null,"f":1.5}]}',
+    b'{"t":2,"r":["$reql_type$ inside a string",{"x":"y"}]}',
+    b'{"t":1,"r":[{"when":{"$reql_type$":"TIME","epoch_time":1700000000.25,'
+    b'"timezone":"+02:00"}}]}',
+    b'{"t":1,"r":[{"$reql_type$":"BINARY","data":"aGVsbG8="}]}',
+    b'{"t":1,"r":[{"$reql_type$":"GROUPED_DATA","data":[[["a",1],5]]}]}',
+    '{"t":2,"r":[]}',
+]
+
+
+@pytest.mark.unit
+class TestDecode:
+    @pytest.mark.parametrize("raw", PAYLOADS)
+    def test_response_decode_matches_reql_decoder(self, raw):
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        expected = ReQLDecoder().decode(text)
+        res = Response(1, raw, ReQLDecoder())
+        assert res.data == expected["r"]
+        assert res.type == expected["t"]
+        if isinstance(raw, bytes):
+            assert Response(1, bytearray(raw), ReQLDecoder()).data == expected["r"]
+
+    def test_decoder_subclass_hook_still_runs(self):
+        class Tagging(ReQLDecoder):
+            def convert_pseudotype(self, obj):
+                converted = super().convert_pseudotype(obj)
+                if "a" in converted:
+                    converted["hooked"] = True
+                return converted
+
+        res = Response(1, b'{"t":1,"r":[{"a":1}]}', Tagging())
+        assert res.data == [{"a": 1, "hooked": True}]
+
+    def test_naive_utc_time_without_deprecation(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            value = ReQLDecoder().convert_time({"epoch_time": 1700000000.25})
+        assert value == datetime.datetime(2023, 11, 14, 22, 13, 20, 250000)
+        assert value.tzinfo is None
