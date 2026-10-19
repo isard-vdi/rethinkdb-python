@@ -20,7 +20,13 @@ from rethinkdb.connection_pool import (
     PoolExhaustedError,
     ThreadSafeConnectionPool,
 )
-from rethinkdb.errors import ReqlDriverError
+from rethinkdb.errors import (
+    ReqlDriverError,
+    ReqlNonExistenceError,
+    ReqlOpFailedError,
+    ReqlQueryLogicError,
+    ReqlTimeoutError,
+)
 
 
 class FakeAsyncConnection:
@@ -408,14 +414,65 @@ class TestThreadSafeConnectionPoolBasics:
         finally:
             pool.close()
 
-    def test_connection_releases_on_exception(self, sync_factory):
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            RuntimeError("kapow"),
+            ValueError("bad input"),
+            ReqlOpFailedError("primary not available"),
+            ReqlNonExistenceError("no attribute"),
+            ReqlQueryLogicError("expected type NUMBER"),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
+    def test_connection_released_on_query_or_app_error(self, sync_factory, exc):
         pool = ThreadSafeConnectionPool(sync_factory, max_size=2)
         try:
-            with pytest.raises(RuntimeError, match="kapow"):
-                with pool.connection():
-                    raise RuntimeError("kapow")
+            with pytest.raises(type(exc)):
+                with pool.connection() as conn:
+                    raise exc
             assert pool.in_use == 0
             assert pool.idle == 1
+            assert conn.close_count == 0
+            with pool.connection() as again:
+                assert again is conn
+        finally:
+            pool.close()
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            ReqlDriverError("Connection is closed."),
+            ReqlTimeoutError("h", 1),
+            OSError("broken pipe"),
+            KeyboardInterrupt(),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
+    def test_connection_discarded_on_transport_error(self, sync_factory, exc):
+        pool = ThreadSafeConnectionPool(sync_factory, max_size=2)
+        try:
+            with pytest.raises(type(exc)):
+                with pool.connection() as conn:
+                    raise exc
+            assert pool.in_use == 0
+            assert pool.idle == 0
+            assert pool.size == 0
+            assert conn.close_count == 1
+            with pool.connection() as again:
+                assert again is not conn
+        finally:
+            pool.close()
+
+    def test_unclean_connection_dropped_on_app_error(self, sync_factory):
+        pool = ThreadSafeConnectionPool(sync_factory, max_size=2)
+        try:
+            with pytest.raises(ValueError):
+                with pool.connection() as conn:
+                    conn.kill()
+                    raise ValueError("bad input")
+            assert pool.idle == 0
+            assert pool.size == 0
         finally:
             pool.close()
 
@@ -557,6 +614,25 @@ class TestThreadSafeConnectionPoolAsyncWrappers:
             async with pool.connection_async() as conn:
                 assert conn.name == "conn-1"
             assert pool.idle == 1
+        finally:
+            await pool.close_async()
+
+    @pytest.mark.asyncio
+    async def test_connection_async_error_handling(self, sync_factory):
+        pool = ThreadSafeConnectionPool(sync_factory, max_size=2)
+        try:
+            with pytest.raises(ValueError):
+                async with pool.connection_async() as conn:
+                    raise ValueError("bad input")
+            assert pool.idle == 1
+            assert conn.close_count == 0
+            with pytest.raises(ReqlTimeoutError):
+                async with pool.connection_async() as again:
+                    assert again is conn
+                    raise ReqlTimeoutError("h", 1)
+            assert pool.idle == 0
+            assert pool.size == 0
+            assert conn.close_count == 1
         finally:
             await pool.close_async()
 

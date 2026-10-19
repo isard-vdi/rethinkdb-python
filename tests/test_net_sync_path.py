@@ -490,3 +490,99 @@ class TestCloseAndReconnect:
             assert not conn.is_open()
         finally:
             srv.stop()
+
+
+class _PoolConn:
+    def __init__(self):
+        self.closed = 0
+
+    def is_open(self):
+        return self.closed == 0
+
+    def close(self, noreply_wait=False):
+        self.closed += 1
+
+
+@pytest.mark.unit
+class TestPool:
+    def test_connection_discarded_when_body_raises(self):
+        pool = ThreadSafeConnectionPool(_PoolConn, max_size=2)
+        with pytest.raises(ReqlDriverError):
+            with pool.connection() as conn:
+                raise ReqlDriverError("Connection is closed.")
+        assert conn.closed == 1
+        assert pool.idle == 0
+        assert pool.size == 0
+        pool.close()
+
+    def test_discard(self):
+        pool = ThreadSafeConnectionPool(_PoolConn, max_size=1)
+        conn = pool.acquire()
+        pool.discard(conn)
+        assert conn.closed == 1
+        assert pool.size == 0
+        assert pool.acquire(timeout=0) is not conn
+        pool.close()
+
+    @pytest.mark.parametrize("state", ["header", "buffer", "cursor"])
+    def test_release_rejects_leftover_state(self, state):
+        conn, server = _wire()
+        inst = conn._instance
+        if state == "header":
+            inst._header_in_progress = b"\0" * 12
+        elif state == "buffer":
+            inst._socket._read_buffer = b"abc"
+        else:
+            inst._cursor_cache[1] = type("C", (), {"_error": lambda self, m: None})()
+        pool = ThreadSafeConnectionPool(lambda: conn, max_size=1)
+        got = pool.acquire()
+        pool.release(got)
+        assert pool.idle == 0
+        assert pool.size == 0
+        _close_quietly(server)
+
+    def test_idle_connections_are_lifo_and_old_ones_evicted(self):
+        pool = ThreadSafeConnectionPool(_PoolConn, max_size=3, max_idle_time=0.2)
+        a, b = pool.acquire(), pool.acquire()
+        pool.release(a)
+        time.sleep(0.3)
+        pool.release(b)
+        assert pool.acquire() is b
+        assert a.closed == 1
+        assert pool.size == 1
+        pool.close()
+
+    def test_pool_under_many_threads(self):
+        servers = []
+
+        def factory():
+            conn, server = _wire()
+            servers.append(FakeServer(server, echo_handler()))
+            return conn
+
+        pool = ThreadSafeConnectionPool(factory, max_size=4)
+        errors = []
+
+        def worker(base):
+            try:
+                for i in range(25):
+                    with pool.connection(timeout=5) as conn:
+                        if r.expr(base + i).run(conn) != base + i:
+                            errors.append(base + i)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(n * 100,)) for n in range(16)]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(10)
+            alive = any(t.is_alive() for t in threads)
+            assert pool.size <= 4
+        finally:
+            pool.close()
+            for srv in servers:
+                srv.stop()
+        assert not alive
+        assert errors == []

@@ -15,10 +15,10 @@
 """Connection pooling for the RethinkDB Python driver.
 
 The RethinkDB wire protocol multiplexes many concurrent queries over a single
-TCP connection by tagging each query with a token. The driver however serializes
-writes per connection, so a single shared connection becomes a bottleneck under
-load. Pooling a small number of connections (typically 4-10) is sufficient to
-remove that bottleneck for most workloads.
+TCP connection by tagging each query with a token, but the blocking driver holds
+a connection for the whole round trip of each query, so threads sharing one
+connection run their queries one at a time. Pooling a small number of
+connections (typically 4-10) removes that bottleneck for most workloads.
 
 Two implementations are provided:
 
@@ -185,7 +185,7 @@ class AsyncioConnectionPool:
         except BaseException:
             async with self._available:
                 self._created -= 1
-                self._available.notify_all()
+                self._available.notify()
             raise
 
         async with self._available:
@@ -218,10 +218,20 @@ class AsyncioConnectionPool:
                 to_close = connection
                 self._created -= 1
 
-            self._available.notify_all()
+            self._available.notify()
 
         if to_close is not None:
             await self._safe_close(to_close)
+
+    async def discard(self, connection: Any) -> None:
+        """Close ``connection`` and free its slot instead of returning it."""
+        if connection is None:
+            return
+        async with self._available:
+            if not self._forget_locked(connection):
+                return
+            self._available.notify()
+        await self._safe_close(connection)
 
     async def close(self) -> None:
         """Close every connection in the pool. Idempotent."""
@@ -252,18 +262,31 @@ class AsyncioConnectionPool:
         finally:
             await self.release(conn)
 
+    def _forget_locked(self, connection: Any) -> bool:
+        if connection in self._active:
+            self._active.remove(connection)
+        else:
+            for i, (conn, _) in enumerate(self._idle):
+                if conn is connection:
+                    del self._idle[i]
+                    break
+            else:
+                return False
+        self._created -= 1
+        return True
+
     def _pop_valid_idle_locked(self, stale: List[Any]) -> Optional[Any]:
         """Pop entries from ``self._idle`` until a valid one is found.
 
         Stale entries are appended to ``stale`` for the caller to close outside
         the lock. Caller MUST hold ``self._lock``.
         """
+        now = time.monotonic()
+        while self._idle and now - self._idle[0][1] >= self.max_idle_time:
+            stale.append(self._idle.popleft()[0])
+            self._created -= 1
         while self._idle:
-            conn, idle_since = self._idle.popleft()
-            if (time.monotonic() - idle_since) >= self.max_idle_time:
-                stale.append(conn)
-                self._created -= 1
-                continue
+            conn, _ = self._idle.pop()
             if not self._is_usable(conn):
                 stale.append(conn)
                 self._created -= 1
@@ -391,7 +414,7 @@ class ThreadSafeConnectionPool:
         except BaseException:
             with self._available:
                 self._created -= 1
-                self._available.notify_all()
+                self._available.notify()
             raise
 
         with self._available:
@@ -423,10 +446,24 @@ class ThreadSafeConnectionPool:
                 to_close = connection
                 self._created -= 1
 
-            self._available.notify_all()
+            self._available.notify()
 
         if to_close is not None:
             self._safe_close(to_close)
+
+    def discard(self, connection: Any) -> None:
+        """Close ``connection`` and free its slot instead of returning it.
+
+        Use it when the connection may be in an unknown state, e.g. after a
+        transport error or a timeout.
+        """
+        if connection is None:
+            return
+        with self._available:
+            if not self._forget_locked(connection):
+                return
+            self._available.notify()
+        self._safe_close(connection)
 
     def close(self) -> None:
         """Close every connection in the pool. Idempotent."""
@@ -448,12 +485,24 @@ class ThreadSafeConnectionPool:
 
     @contextmanager
     def connection(self, timeout: Optional[float] = None) -> Iterator[Any]:
-        """Context manager that acquires a connection and releases it on exit."""
+        """Acquire a connection and release it on exit.
+
+        If the body raised a transport-level error (``ReqlDriverError``,
+        including ``ReqlTimeoutError``, or ``OSError``) or an interrupt, the
+        connection is discarded instead. Query errors reported by the server
+        and application exceptions release it normally; ``release`` still
+        drops it if it was left closed or mid-reply.
+        """
         conn = self.acquire(timeout=timeout)
         try:
             yield conn
-        finally:
-            self.release(conn)
+        except BaseException as exc:
+            if self._is_transport_failure(exc):
+                self.discard(conn)
+            else:
+                self.release(conn)
+            raise
+        self.release(conn)
 
     async def acquire_async(self, timeout: Optional[float] = None) -> Any:
         loop = asyncio.get_running_loop()
@@ -474,16 +523,41 @@ class ThreadSafeConnectionPool:
         conn = await self.acquire_async(timeout=timeout)
         try:
             yield conn
-        finally:
-            await self.release_async(conn)
+        except BaseException as exc:
+            if self._is_transport_failure(exc):
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self.discard, conn)
+            else:
+                await self.release_async(conn)
+            raise
+        await self.release_async(conn)
+
+    @staticmethod
+    def _is_transport_failure(exc: BaseException) -> bool:
+        if not isinstance(exc, Exception):
+            return True
+        return isinstance(exc, (ReqlDriverError, OSError))
+
+    def _forget_locked(self, connection: Any) -> bool:
+        if connection in self._active:
+            self._active.remove(connection)
+        else:
+            for i, (conn, _) in enumerate(self._idle):
+                if conn is connection:
+                    del self._idle[i]
+                    break
+            else:
+                return False
+        self._created -= 1
+        return True
 
     def _pop_valid_idle_locked(self, stale: List[Any]) -> Optional[Any]:
+        now = time.monotonic()
+        while self._idle and now - self._idle[0][1] >= self.max_idle_time:
+            stale.append(self._idle.popleft()[0])
+            self._created -= 1
         while self._idle:
-            conn, idle_since = self._idle.popleft()
-            if (time.monotonic() - idle_since) >= self.max_idle_time:
-                stale.append(conn)
-                self._created -= 1
-                continue
+            conn, _ = self._idle.pop()
             if not self._is_usable(conn):
                 stale.append(conn)
                 self._created -= 1
@@ -494,12 +568,22 @@ class ThreadSafeConnectionPool:
     @staticmethod
     def _is_usable(connection: Any) -> bool:
         try:
-            return bool(connection.is_open())
+            if not connection.is_open():
+                return False
         except Exception as exc:
             default_logger.warning(
                 f"Pooled connection is_open() raised, treating as dead: {exc!r}"
             )
             return False
+        instance = getattr(connection, "_instance", None)
+        if instance is None:
+            return True
+        sock = getattr(instance, "_socket", None)
+        return (
+            getattr(instance, "_header_in_progress", None) is None
+            and not getattr(sock, "_read_buffer", None)
+            and not getattr(instance, "_cursor_cache", None)
+        )
 
     @staticmethod
     def _safe_close(connection: Any) -> None:
