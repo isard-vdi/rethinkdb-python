@@ -288,3 +288,15 @@ class TestReadBuffers:
         assert wrapped.recv_calls <= 3
         sw.close()
         _close_quietly(server)
+
+
+@pytest.mark.unit
+class TestPoisoning:
+    def test_unexpected_oserror_closes_connection(self):
+        conn, server = _wire(
+            wrap=lambda s: CountingSocket(s, fail_recv=OSError(errno.EIO, "boom"))
+        )
+        with pytest.raises(ReqlDriverError):
+            _bounded(conn.server, on_hang=lambda: _close_quietly(server))
+        assert not conn.is_open()
+        _close_quietly(server)

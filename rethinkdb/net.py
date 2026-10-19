@@ -474,8 +474,8 @@ class SocketWrapper(object):
                 except IOError as ex:
                     if ex.errno == errno.EINTR:
                         continue
+                    self.close()
                     if ex.errno == errno.ECONNRESET:
-                        self.close()
                         raise ReqlDriverError("Connection is closed.")
                     raise ReqlDriverError(
                         ("Connection interrupted " + "receiving from %s:%s - %s")
@@ -598,28 +598,29 @@ class ConnectionInstance(object):
                 ) = struct.unpack("<qL", self._header_in_progress)
                 res_buf = self._socket.recvall(res_len, deadline)
                 self._header_in_progress = None
+
+                cursor = self._cursor_cache.get(res_token)
+                if cursor is not None:
+                    cursor._extend(res_buf)
+                    if res_token == token:
+                        return None
+                elif res_token == token:
+                    return Response(
+                        res_token, res_buf, self._parent._get_json_decoder(query)
+                    )
+                elif not self._closing:
+                    # This response is corrupted or not intended for us
+                    raise ReqlDriverError("Unexpected response received.")
+            except ReqlTimeoutError:
+                raise
             except KeyboardInterrupt as ex:
                 # Cancel outstanding queries by dropping this connection,
                 # then create a new connection for the user's convenience.
                 self._parent.reconnect(noreply_wait=False)
                 raise ex
-
-            res = None
-
-            cursor = self._cursor_cache.get(res_token)
-            if cursor is not None:
-                # Construct response
-                cursor._extend(res_buf)
-                if res_token == token:
-                    return res
-            elif res_token == token:
-                return Response(
-                    res_token, res_buf, self._parent._get_json_decoder(query)
-                )
-            elif not self._closing:
-                # This response is corrupted or not intended for us
+            except BaseException:
                 self.close()
-                raise ReqlDriverError("Unexpected response received.")
+                raise
 
 
 QueryStartHook = Callable[["Query"], None]
