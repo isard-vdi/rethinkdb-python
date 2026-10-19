@@ -463,6 +463,7 @@ class SocketWrapper(object):
                 default_logger.error(exc)
             finally:
                 self._socket = None
+                self._read_buffer = None
 
     def recvall(self, length, deadline):
         buf = bytearray(length)
@@ -561,7 +562,7 @@ class ConnectionInstance(object):
         return self._parent
 
     def is_open(self):
-        return self._socket.is_open()
+        return self._socket is not None and self._socket.is_open()
 
     def close(self, noreply_wait=False, token=None):
         self._closing = True
@@ -572,11 +573,15 @@ class ConnectionInstance(object):
         self._cursor_cache = {}
 
         try:
-            if noreply_wait:
+            if noreply_wait and self.is_open():
+                timeout = self._parent.read_timeout
+                if timeout is None:
+                    timeout = self._parent.connect_timeout
                 noreply = Query(pQuery.NOREPLY_WAIT, token, None, None)
-                self.run_query(noreply, False)
+                self.run_query(noreply, False, time.monotonic() + timeout)
         finally:
-            self._socket.close()
+            if self._socket is not None:
+                self._socket.close()
             self._header_in_progress = None
 
     def run_query(self, query, noreply, deadline=None):
@@ -738,7 +743,7 @@ class Connection(object):
         if self.is_open():
             return self._instance.client_address()
 
-    def reconnect(self, noreply_wait=True, timeout=None):
+    def reconnect(self, noreply_wait=False, timeout=None):
         if timeout is None:
             timeout = self.connect_timeout
 

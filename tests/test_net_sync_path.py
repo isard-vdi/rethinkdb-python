@@ -447,3 +447,46 @@ class TestThreadSafety:
             t.join()
         tokens = [t for chunk in out for t in chunk]
         assert len(set(tokens)) == len(tokens)
+
+
+@pytest.mark.unit
+class TestCloseAndReconnect:
+    def _dead(self, timeout=5):
+        conn, server = _wire(timeout=timeout)
+        _close_quietly(server)
+        conn._instance._socket.close()
+        return conn
+
+    def test_close_on_dead_socket_skips_noreply_wait(self):
+        conn = self._dead()
+        _bounded(conn.close)
+        assert conn._instance is None
+
+    def test_reconnect_on_dead_connection(self):
+        conn = self._dead()
+
+        class FakeInstance:
+            def __init__(self, parent, **kwargs):
+                self.parent = parent
+
+            def connect(self, timeout):
+                return self.parent
+
+            def is_open(self):
+                return True
+
+        conn._conn_type = FakeInstance
+        assert _bounded(conn.reconnect) is conn
+        assert isinstance(conn._instance, FakeInstance)
+
+    def test_close_bounds_noreply_wait(self):
+        conn, server = _wire(timeout=0.3)
+        srv = FakeServer(server, lambda token, query: None)
+        try:
+            start = time.monotonic()
+            with pytest.raises(ReqlTimeoutError):
+                _bounded(lambda: conn.close(noreply_wait=True), on_hang=srv.stop)
+            assert time.monotonic() - start < 2
+            assert not conn.is_open()
+        finally:
+            srv.stop()
