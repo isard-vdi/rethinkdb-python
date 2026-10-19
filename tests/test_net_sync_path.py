@@ -351,3 +351,99 @@ class TestReadTimeoutOption:
             assert "read_timeout" not in json.dumps(srv.queries)
         finally:
             srv.stop()
+
+
+@pytest.mark.unit
+class TestThreadSafety:
+    def test_two_threads_share_one_connection(self):
+        conn, server = _wire()
+        srv = FakeServer(server, echo_handler(delay=0.005))
+        errors = []
+
+        def worker(base):
+            try:
+                for i in range(25):
+                    value = base + i
+                    got = r.expr(value).run(conn)
+                    if got != value:
+                        errors.append((value, got))
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(b,)) for b in (0, 1000)]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(5)
+            alive = any(t.is_alive() for t in threads)
+        finally:
+            srv.stop()
+        assert not alive
+        assert errors == []
+
+    def test_cursor_batches_while_other_thread_queries(self):
+        conn, server = _wire()
+        batches = {}
+
+        def handler(token, query):
+            if query[0] == pQuery.START and query[1] == "feed":
+                batches[token] = [[3, 4], [5, 6], [7, 8]]
+                return _frame(token, pResponse.SUCCESS_PARTIAL, [1, 2])
+            if query[0] == pQuery.CONTINUE:
+                time.sleep(0.005)
+                left = batches[token]
+                if not left:
+                    return _frame(token, pResponse.SUCCESS_SEQUENCE, [])
+                data = left.pop(0)
+                rtype = (
+                    pResponse.SUCCESS_PARTIAL if left else pResponse.SUCCESS_SEQUENCE
+                )
+                return _frame(token, rtype, data)
+            return echo_handler()(token, query)
+
+        srv = FakeServer(server, handler)
+        items, errors = [], []
+
+        def iterate():
+            try:
+                for _ in range(10):
+                    items.extend(list(r.expr("feed").run(conn)))
+            except Exception as exc:
+                errors.append(exc)
+
+        def query():
+            try:
+                for i in range(30):
+                    if r.expr(i).run(conn) != i:
+                        errors.append(i)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=iterate), threading.Thread(target=query)]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(5)
+            alive = any(t.is_alive() for t in threads)
+        finally:
+            srv.stop()
+        assert not alive
+        assert errors == []
+        assert items == list(range(1, 9)) * 10
+
+    def test_tokens_are_unique_across_threads(self):
+        conn = DefaultConnection("h", 1, None, None, "admin", None, 5, {}, 10)
+        out = []
+
+        def take():
+            out.append([conn._new_token() for _ in range(20000)])
+
+        threads = [threading.Thread(target=take) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        tokens = [t for chunk in out for t in chunk]
+        assert len(set(tokens)) == len(tokens)

@@ -24,6 +24,7 @@ import pprint
 import socket
 import ssl
 import struct
+import threading
 import time
 from typing import Any, Callable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -316,13 +317,21 @@ class DefaultCursor(Cursor):
         return DefaultCursorEmpty()
 
     def _get_next(self, timeout):
+        try:
+            return self.items.popleft()
+        except IndexError:
+            pass
         deadline = None if timeout is None else time.monotonic() + timeout
-        while len(self.items) == 0:
-            self._maybe_fetch_batch()
-            if self.error is not None:
-                raise self.error
-            self.conn._read_response(self.query, deadline)
-        return self.items.popleft()
+        self.conn._acquire(deadline)
+        try:
+            while len(self.items) == 0:
+                self._maybe_fetch_batch()
+                if self.error is not None:
+                    raise self.error
+                self.conn._read_response(self.query, deadline)
+            return self.items.popleft()
+        finally:
+            self.conn._lock.release()
 
 
 class SocketWrapper(object):
@@ -530,6 +539,14 @@ class ConnectionInstance(object):
         self._header_in_progress = None
         self._socket = None
         self._closing = False
+        # Reentrant: dispatching a frame to a cursor may send its CONTINUE.
+        self._lock = threading.RLock()
+
+    def _acquire(self, deadline):
+        if deadline is None:
+            self._lock.acquire()
+        elif not self._lock.acquire(timeout=max(deadline - time.monotonic(), 0)):
+            raise ReqlTimeoutError(self._parent.host, self._parent.port)
 
     def client_port(self):
         if self.is_open():
@@ -570,6 +587,13 @@ class ConnectionInstance(object):
             if timeout is not None:
                 deadline = time.monotonic() + timeout
 
+        self._acquire(deadline)
+        try:
+            return self._run_query_locked(query, noreply, deadline)
+        finally:
+            self._lock.release()
+
+    def _run_query_locked(self, query, noreply, deadline):
         self._socket.sendall(query.serialize(self._parent._get_json_encoder(query)))
         if noreply:
             return None
@@ -677,6 +701,7 @@ class Connection(object):
         self._child_kwargs = kwargs
         self._instance = None
         self._next_token = 0
+        self._token_lock = threading.Lock()
 
         if "json_encoder" in kwargs:
             self._json_encoder = kwargs.pop("json_encoder")
@@ -748,9 +773,10 @@ class Connection(object):
     def close(self, noreply_wait=True):
         if self._instance is not None:
             instance = self._instance
-            noreply_wait_token = self._new_token()
+            with self._token_lock:
+                noreply_wait_token = self._next_token
+                self._next_token = 0
             self._instance = None
-            self._next_token = 0
             return instance.close(noreply_wait, noreply_wait_token)
 
     def noreply_wait(self):
@@ -764,8 +790,9 @@ class Connection(object):
         return self._instance.run_query(q, False)
 
     def _new_token(self):
-        res = self._next_token
-        self._next_token += 1
+        with self._token_lock:
+            res = self._next_token
+            self._next_token += 1
         return res
 
     def add_query_observer(
