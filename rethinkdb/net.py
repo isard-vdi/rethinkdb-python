@@ -389,6 +389,7 @@ class SocketWrapper(object):
 
             parent._parent.handshake.reset()
             response = None
+            pending = bytearray()
             while True:
                 request = parent._parent.handshake.next_message(response)
                 if request is None:
@@ -397,14 +398,9 @@ class SocketWrapper(object):
                 # an optimization, then need to read each separately
                 if request != "":
                     self.sendall(request)
-
-                # The response from the server is a null-terminated string
-                response = b""
-                while True:
-                    char = self.recvall(1, deadline)
-                    if char == b"\0":
-                        break
-                    response += char
+                response = self._recv_handshake_reply(pending, deadline)
+            if pending:
+                raise ReqlDriverError("Unexpected data received after the handshake.")
             self._socket.settimeout(None)
         except (ReqlAuthError, ReqlTimeoutError):
             self.close()
@@ -427,6 +423,22 @@ class SocketWrapper(object):
                 % (self.host, self.port, str(ex))
             )
 
+    def _recv_handshake_reply(self, pending, deadline):
+        while True:
+            end = pending.find(b"\0")
+            if end >= 0:
+                reply = bytes(pending[:end])
+                del pending[: end + 1]
+                return reply
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ReqlTimeoutError(self.host, self.port)
+            self._socket.settimeout(remaining)
+            chunk = self._socket.recv(4096)
+            if not chunk:
+                raise ReqlDriverError("Connection is closed.")
+            pending += chunk
+
     def is_open(self):
         return self._socket is not None
 
@@ -443,16 +455,21 @@ class SocketWrapper(object):
                 self._socket = None
 
     def recvall(self, length, deadline):
-        res = self._read_buffer or b""
-        self._read_buffer = None
+        buf = bytearray(length)
+        view = memoryview(buf)
+        got = 0
+        if self._read_buffer:
+            got = len(self._read_buffer)
+            buf[:got] = self._read_buffer
+            self._read_buffer = None
         try:
-            while len(res) < length:
+            while got < length:
                 if deadline is not None:
                     self._socket.settimeout(max(deadline - time.monotonic(), 0))
                 try:
-                    chunk = self._socket.recv(length - len(res))
+                    received = self._socket.recv_into(view[got:])
                 except (socket.timeout, BlockingIOError, ssl.SSLWantReadError):
-                    self._read_buffer = res or None
+                    self._read_buffer = bytes(view[:got]) or None
                     raise ReqlTimeoutError(self.host, self.port)
                 except IOError as ex:
                     if ex.errno == errno.EINTR:
@@ -471,14 +488,14 @@ class SocketWrapper(object):
                         % (self.host, self.port, str(ex))
                     )
 
-                if len(chunk) == 0:
+                if received == 0:
                     self.close()
                     raise ReqlDriverError("Connection is closed.")
-                res += chunk
+                got += received
         finally:
             if deadline is not None and self._socket is not None:
                 self._socket.settimeout(None)
-        return res
+        return buf
 
     def sendall(self, data):
         offset = 0

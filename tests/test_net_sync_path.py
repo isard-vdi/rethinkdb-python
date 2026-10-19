@@ -229,3 +229,62 @@ class TestReadDeadline:
         assert bytes(sw.recvall(6, None)) == b"GHIJKL"
         assert not sw._read_buffer
         _close_quietly(server)
+
+
+@pytest.mark.unit
+class TestReadBuffers:
+    def test_large_frame_is_filled_in_place(self):
+        conn, server = _wire()
+        sw = conn._instance._socket
+        size = 8 * 1024 * 1024
+        payload = bytes(range(256)) * (size // 256)
+
+        def feed():
+            for i in range(0, size, 65536):
+                server.sendall(payload[i : i + 65536])
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        tracemalloc.start()
+        try:
+            feeder.start()
+            got = _bounded(lambda: sw.recvall(size, None), limit=10)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        feeder.join(2)
+        assert got == payload
+        assert peak < size * 1.5
+        _close_quietly(server)
+
+    def test_handshake_reads_replies_in_chunks(self, monkeypatch):
+        client, server = _tcp_pair()
+        wrapped = CountingSocket(client)
+        monkeypatch.setattr(socket, "create_connection", lambda *a, **k: wrapped)
+
+        class FakeHandshake:
+            def __init__(self):
+                self.responses = []
+
+            def reset(self):
+                pass
+
+            def next_message(self, response):
+                if response is None:
+                    return b"hello\0"
+                self.responses.append(response)
+                if len(self.responses) == 1:
+                    return ""
+                return None
+
+        parent = type("P", (), {})()
+        parent._parent = DefaultConnection("h", 1, None, None, "admin", None, 5, {}, 10)
+        parent._parent.handshake = FakeHandshake()
+        server.sendall(b'{"first":"reply"}\0{"second":"reply"}\0')
+        sw = _bounded(lambda: SocketWrapper(parent, 2))
+        assert parent._parent.handshake.responses == [
+            b'{"first":"reply"}',
+            b'{"second":"reply"}',
+        ]
+        assert wrapped.recv_calls <= 3
+        sw.close()
+        _close_quietly(server)
