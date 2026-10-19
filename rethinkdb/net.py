@@ -315,7 +315,7 @@ class DefaultCursor(Cursor):
         return DefaultCursorEmpty()
 
     def _get_next(self, timeout):
-        deadline = None if timeout is None else time.time() + timeout
+        deadline = None if timeout is None else time.monotonic() + timeout
         while len(self.items) == 0:
             self._maybe_fetch_batch()
             if self.error is not None:
@@ -332,7 +332,7 @@ class SocketWrapper(object):
         self._socket = None
         self.ssl = parent._parent.ssl
 
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
 
         try:
             self._socket = socket.create_connection((self.host, self.port), timeout)
@@ -405,6 +405,7 @@ class SocketWrapper(object):
                     if char == b"\0":
                         break
                     response += char
+            self._socket.settimeout(None)
         except (ReqlAuthError, ReqlTimeoutError):
             self.close()
             raise
@@ -442,31 +443,27 @@ class SocketWrapper(object):
                 self._socket = None
 
     def recvall(self, length, deadline):
-        res = b"" if self._read_buffer is None else self._read_buffer
-        timeout = None if deadline is None else max(0, deadline - time.time())
-        self._socket.settimeout(timeout)
-        while len(res) < length:
-            while True:
+        res = self._read_buffer or b""
+        self._read_buffer = None
+        try:
+            while len(res) < length:
+                if deadline is not None:
+                    self._socket.settimeout(max(deadline - time.monotonic(), 0))
                 try:
                     chunk = self._socket.recv(length - len(res))
-                    self._socket.settimeout(None)
-                    break
-                except socket.timeout:
-                    self._read_buffer = res
-                    self._socket.settimeout(None)
+                except (socket.timeout, BlockingIOError, ssl.SSLWantReadError):
+                    self._read_buffer = res or None
                     raise ReqlTimeoutError(self.host, self.port)
                 except IOError as ex:
+                    if ex.errno == errno.EINTR:
+                        continue
                     if ex.errno == errno.ECONNRESET:
                         self.close()
                         raise ReqlDriverError("Connection is closed.")
-                    elif ex.errno == errno.EWOULDBLOCK:
-                        # This should only happen with a timeout of 0
-                        raise ReqlTimeoutError(self.host, self.port)
-                    elif ex.errno != errno.EINTR:
-                        raise ReqlDriverError(
-                            ("Connection interrupted " + "receiving from %s:%s - %s")
-                            % (self.host, self.port, str(ex))
-                        )
+                    raise ReqlDriverError(
+                        ("Connection interrupted " + "receiving from %s:%s - %s")
+                        % (self.host, self.port, str(ex))
+                    )
                 except Exception as ex:
                     self.close()
                     raise ReqlDriverError(
@@ -474,10 +471,13 @@ class SocketWrapper(object):
                         % (self.host, self.port, str(ex))
                     )
 
-            if len(chunk) == 0:
-                self.close()
-                raise ReqlDriverError("Connection is closed.")
-            res += chunk
+                if len(chunk) == 0:
+                    self.close()
+                    raise ReqlDriverError("Connection is closed.")
+                res += chunk
+        finally:
+            if deadline is not None and self._socket is not None:
+                self._socket.settimeout(None)
         return res
 
     def sendall(self, data):
