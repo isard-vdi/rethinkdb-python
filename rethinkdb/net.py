@@ -348,6 +348,7 @@ class SocketWrapper(object):
             self._socket = socket.create_connection((self.host, self.port), timeout)
             self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            self._set_keepalive(parent._parent)
 
             if len(self.ssl) > 0:
                 try:
@@ -407,7 +408,7 @@ class SocketWrapper(object):
                 # This may happen in the `V1_0` protocol where we send two requests as
                 # an optimization, then need to read each separately
                 if request != "":
-                    self.sendall(request)
+                    self.sendall(request, deadline)
                 response = self._recv_handshake_reply(pending, deadline)
             if pending:
                 raise ReqlDriverError("Unexpected data received after the handshake.")
@@ -432,6 +433,20 @@ class SocketWrapper(object):
                 "Could not connect to %s:%s. Error: %s"
                 % (self.host, self.port, str(ex))
             )
+
+    def _set_keepalive(self, conn):
+        user_timeout = conn.tcp_user_timeout
+        options = (
+            ("TCP_KEEPIDLE", conn.keepalive_idle),
+            ("TCP_KEEPINTVL", conn.keepalive_interval),
+            ("TCP_KEEPCNT", conn.keepalive_count),
+            ("TCP_USER_TIMEOUT", user_timeout and int(user_timeout * 1000)),
+        )
+        for name, value in options:
+            if value and hasattr(socket, name):
+                self._socket.setsockopt(
+                    socket.IPPROTO_TCP, getattr(socket, name), int(value)
+                )
 
     def _recv_handshake_reply(self, pending, deadline):
         while True:
@@ -466,6 +481,9 @@ class SocketWrapper(object):
                 self._read_buffer = None
 
     def recvall(self, length, deadline):
+        sock = self._socket
+        if sock is None:
+            raise ReqlDriverError("Connection is closed.")
         buf = bytearray(length)
         view = memoryview(buf)
         got = 0
@@ -476,15 +494,13 @@ class SocketWrapper(object):
         try:
             while got < length:
                 if deadline is not None:
-                    self._socket.settimeout(max(deadline - time.monotonic(), 0))
+                    sock.settimeout(max(deadline - time.monotonic(), 0))
                 try:
-                    received = self._socket.recv_into(view[got:])
+                    received = sock.recv_into(view[got:])
                 except (socket.timeout, BlockingIOError, ssl.SSLWantReadError):
                     self._read_buffer = bytes(view[:got]) or None
                     raise ReqlTimeoutError(self.host, self.port)
                 except IOError as ex:
-                    if ex.errno == errno.EINTR:
-                        continue
                     self.close()
                     if ex.errno == errno.ECONNRESET:
                         raise ReqlDriverError("Connection is closed.")
@@ -508,29 +524,37 @@ class SocketWrapper(object):
                 self._socket.settimeout(None)
         return buf
 
-    def sendall(self, data):
-        offset = 0
-        while offset < len(data):
-            try:
-                offset += self._socket.send(data[offset:])
-            except IOError as ex:
-                if ex.errno == errno.ECONNRESET:
-                    self.close()
-                    raise ReqlDriverError("Connection is closed.")
-                elif ex.errno != errno.EINTR:
-                    self.close()
-                    raise ReqlDriverError(
-                        ("Connection interrupted " + "sending to %s:%s - %s")
-                        % (self.host, self.port, str(ex))
-                    )
-            except Exception as ex:
-                self.close()
-                raise ReqlDriverError(
-                    "Error sending to %s:%s - %s" % (self.host, self.port, str(ex))
-                )
-            except BaseException:
-                self.close()
-                raise
+    def sendall(self, data, deadline=None):
+        sock = self._socket
+        if sock is None:
+            raise ReqlDriverError("Connection is closed.")
+        try:
+            if deadline is not None:
+                # A zero timeout would switch the socket to non-blocking.
+                sock.settimeout(max(deadline - time.monotonic(), 0.001))
+            sock.sendall(data)
+        except socket.timeout:
+            self.close()
+            raise ReqlTimeoutError(self.host, self.port)
+        except IOError as ex:
+            self.close()
+            if ex.errno == errno.ECONNRESET:
+                raise ReqlDriverError("Connection is closed.")
+            raise ReqlDriverError(
+                ("Connection interrupted " + "sending to %s:%s - %s")
+                % (self.host, self.port, str(ex))
+            )
+        except Exception as ex:
+            self.close()
+            raise ReqlDriverError(
+                "Error sending to %s:%s - %s" % (self.host, self.port, str(ex))
+            )
+        except BaseException:
+            self.close()
+            raise
+        finally:
+            if deadline is not None and self._socket is not None:
+                self._socket.settimeout(None)
 
 
 class ConnectionInstance(object):
@@ -599,7 +623,9 @@ class ConnectionInstance(object):
             self._lock.release()
 
     def _run_query_locked(self, query, noreply, deadline):
-        self._socket.sendall(query.serialize(self._parent._get_json_encoder(query)))
+        self._socket.sendall(
+            query.serialize(self._parent._get_json_encoder(query)), deadline
+        )
         if noreply:
             return None
 
@@ -699,6 +725,10 @@ class Connection(object):
 
         self.connect_timeout = timeout
         self.read_timeout = kwargs.pop("read_timeout", None)
+        self.keepalive_idle = kwargs.pop("keepalive_idle", 60)
+        self.keepalive_interval = kwargs.pop("keepalive_interval", 10)
+        self.keepalive_count = kwargs.pop("keepalive_count", 6)
+        self.tcp_user_timeout = kwargs.pop("tcp_user_timeout", 120)
 
         self.ssl = ssl
 

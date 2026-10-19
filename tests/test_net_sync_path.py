@@ -586,3 +586,65 @@ class TestPool:
                 srv.stop()
         assert not alive
         assert errors == []
+
+
+@pytest.mark.unit
+class TestSocketOptions:
+    def _connect(self, monkeypatch, **kwargs):
+        client, server = _tcp_pair()
+        wrapped = CountingSocket(client)
+        monkeypatch.setattr(socket, "create_connection", lambda *a, **k: wrapped)
+
+        class NoHandshake:
+            def reset(self):
+                pass
+
+            def next_message(self, response):
+                return None
+
+        parent = type("P", (), {})()
+        parent._parent = DefaultConnection(
+            "h", 1, None, None, "admin", None, 5, {}, 10, **kwargs
+        )
+        parent._parent.handshake = NoHandshake()
+        sw = SocketWrapper(parent, 2)
+        sw.close()
+        _close_quietly(server)
+        return {(level, opt): value for level, opt, value in wrapped.sockopts}
+
+    def test_keepalive_defaults(self, monkeypatch):
+        opts = self._connect(monkeypatch)
+        assert opts[(socket.SOL_SOCKET, socket.SO_KEEPALIVE)] == 1
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE)] == 60
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL)] == 10
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPCNT)] == 6
+        if hasattr(socket, "TCP_USER_TIMEOUT"):
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT)] == 120000
+
+    def test_keepalive_custom(self, monkeypatch):
+        opts = self._connect(
+            monkeypatch,
+            keepalive_idle=5,
+            keepalive_interval=2,
+            keepalive_count=3,
+            tcp_user_timeout=None,
+        )
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE)] == 5
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL)] == 2
+            assert opts[(socket.IPPROTO_TCP, socket.TCP_KEEPCNT)] == 3
+        if hasattr(socket, "TCP_USER_TIMEOUT"):
+            assert (socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT) not in opts
+
+    def test_send_deadline(self):
+        conn, server = _wire(read_timeout=0.2)
+        try:
+            with pytest.raises(ReqlTimeoutError):
+                _bounded(
+                    lambda: r.expr("x" * (8 * 1024 * 1024)).run(conn, noreply=True),
+                    on_hang=lambda: _close_quietly(server),
+                )
+            assert not conn.is_open()
+        finally:
+            _close_quietly(server)
