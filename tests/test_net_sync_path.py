@@ -300,3 +300,54 @@ class TestPoisoning:
             _bounded(conn.server, on_hang=lambda: _close_quietly(server))
         assert not conn.is_open()
         _close_quietly(server)
+
+
+@pytest.mark.unit
+class TestReadTimeoutOption:
+    def test_query_read_timeout_closes_connection(self):
+        conn, server = _wire()
+        srv = FakeServer(server, lambda token, query: None)
+        try:
+            with pytest.raises(ReqlTimeoutError):
+                _bounded(
+                    lambda: r.expr(1).run(conn, read_timeout=0.2), on_hang=srv.stop
+                )
+            assert not conn.is_open()
+            assert "read_timeout" not in json.dumps(srv.queries)
+        finally:
+            srv.stop()
+
+    def test_timeout_mid_frame_closes_connection(self):
+        conn, server = _wire(read_timeout=0.2)
+
+        def handler(token, query):
+            return _frame(token, pResponse.SERVER_INFO, [{"name": "x"}])[:15]
+
+        srv = FakeServer(server, handler)
+        try:
+            with pytest.raises(ReqlTimeoutError):
+                _bounded(conn.server, on_hang=srv.stop)
+            assert not conn.is_open()
+        finally:
+            srv.stop()
+
+    def test_connection_default_read_timeout(self):
+        conn, server = _wire(read_timeout=0.2)
+        srv = FakeServer(server, lambda token, query: None)
+        try:
+            start = time.monotonic()
+            with pytest.raises(ReqlTimeoutError):
+                _bounded(lambda: r.expr(1).run(conn), on_hang=srv.stop)
+            assert time.monotonic() - start < 1.5
+        finally:
+            srv.stop()
+
+    def test_run_option_is_not_sent_and_answer_arrives(self):
+        conn, server = _wire()
+        srv = FakeServer(server, echo_handler())
+        try:
+            assert _bounded(lambda: r.expr(7).run(conn, read_timeout=2)) == 7
+            assert conn.is_open()
+            assert "read_timeout" not in json.dumps(srv.queries)
+        finally:
+            srv.stop()

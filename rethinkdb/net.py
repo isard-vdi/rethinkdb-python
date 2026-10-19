@@ -92,6 +92,7 @@ class Query(object):
         global_optargs = global_optargs or {}
         self._json_encoder = global_optargs.pop("json_encoder", None)
         self._json_decoder = global_optargs.pop("json_decoder", None)
+        self._read_timeout = global_optargs.pop("read_timeout", None)
 
     def serialize(self, reql_encoder=ReQLEncoder()):
         message = [self.type]
@@ -561,13 +562,24 @@ class ConnectionInstance(object):
             self._socket.close()
             self._header_in_progress = None
 
-    def run_query(self, query, noreply):
+    def run_query(self, query, noreply, deadline=None):
+        if deadline is None:
+            timeout = query._read_timeout
+            if timeout is None:
+                timeout = self._parent.read_timeout
+            if timeout is not None:
+                deadline = time.monotonic() + timeout
+
         self._socket.sendall(query.serialize(self._parent._get_json_encoder(query)))
         if noreply:
             return None
 
-        # Get response
-        res = self._read_response(query)
+        try:
+            res = self._read_response(query, deadline)
+        except ReqlTimeoutError:
+            # The late reply would desynchronise the next query.
+            self.close()
+            raise
 
         if res.type == pResponse.SUCCESS_ATOM:
             return maybe_profile(res.data[0], res)
@@ -657,6 +669,7 @@ class Connection(object):
             raise ReqlDriverError("Could not convert port %r to an integer." % port)
 
         self.connect_timeout = timeout
+        self.read_timeout = kwargs.pop("read_timeout", None)
 
         self.ssl = ssl
 
